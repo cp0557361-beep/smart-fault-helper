@@ -103,7 +103,7 @@ export function AppLayout() {
           <nav className="flex-1 p-4 space-y-2">
             {filteredNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
               
               return (
                 <button
@@ -138,7 +138,7 @@ export function AppLayout() {
               <nav className="p-4 space-y-2">
                 {filteredNavItems.map((item) => {
                   const Icon = item.icon;
-                  const isActive = location.pathname === item.path;
+                  const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
                   
                   return (
                     <button
@@ -186,7 +186,7 @@ export function AppLayout() {
         <div className="flex justify-around py-2">
           {filteredNavItems.slice(0, 4).map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
             
             return (
               <button

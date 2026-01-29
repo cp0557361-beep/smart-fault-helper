@@ -10,6 +10,12 @@ import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import ReportsPage from "./pages/ReportsPage";
 import NotFound from "./pages/NotFound";
+import AdminLayout from "./pages/admin/AdminLayout";
+import UsersPage from "./pages/admin/UsersPage";
+import AreasPage from "./pages/admin/AreasPage";
+import LinesPage from "./pages/admin/LinesPage";
+import FaultsPage from "./pages/admin/FaultsPage";
+import GlossaryPage from "./pages/admin/GlossaryPage";
 
 const queryClient = new QueryClient();
 
@@ -66,6 +72,16 @@ const App = () => (
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              
+              {/* Admin routes */}
+              <Route path="admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="/admin/users" replace />} />
+                <Route path="users" element={<UsersPage />} />
+                <Route path="areas" element={<AreasPage />} />
+                <Route path="lines" element={<LinesPage />} />
+                <Route path="faults" element={<FaultsPage />} />
+                <Route path="glossary" element={<GlossaryPage />} />
+              </Route>
             </Route>
 
             <Route path="*" element={<NotFound />} />
