@@ -205,6 +205,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          image_url: string | null
           machine_type: string | null
           name: string
           production_line_id: string
@@ -215,6 +216,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          image_url?: string | null
           machine_type?: string | null
           name: string
           production_line_id: string
@@ -225,6 +227,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          image_url?: string | null
           machine_type?: string | null
           name?: string
           production_line_id?: string
