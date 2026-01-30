@@ -282,12 +282,12 @@ export default function LinesPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Select value={selectedAreaId} onValueChange={setSelectedAreaId}>
+          <Select value={selectedAreaId || '__all__'} onValueChange={(val) => setSelectedAreaId(val === '__all__' ? '' : val)}>
             <SelectTrigger>
               <SelectValue placeholder="Filtrar por área..." />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todas las áreas</SelectItem>
+              <SelectItem value="__all__">Todas las áreas</SelectItem>
               {areas?.map((area) => (
                 <SelectItem key={area.id} value={area.id}>
                   {area.name}
