@@ -24,6 +24,8 @@ interface MachineForm {
   machine_type: string;
   sequence_order: number;
   image_url?: string;
+  serial_number?: string;
+  nameplate_image_url?: string;
 }
 
 export default function LinesPage() {
@@ -35,9 +37,26 @@ export default function LinesPage() {
   const [editingLine, setEditingLine] = useState<any>(null);
   const [editingMachine, setEditingMachine] = useState<any>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingNameplate, setUploadingNameplate] = useState(false);
 
   const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
-  const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0 } });
+  const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '' } });
+
+  // Check if line name already exists in the same area
+  const checkDuplicateLineName = async (name: string, areaId: string, excludeId?: string): Promise<boolean> => {
+    let query = supabase
+      .from('production_lines')
+      .select('id')
+      .eq('area_id', areaId)
+      .ilike('name', name);
+    
+    if (excludeId) {
+      query = query.neq('id', excludeId);
+    }
+    
+    const { data } = await query;
+    return (data?.length || 0) > 0;
+  };
 
   const { data: areas } = useQuery({
     queryKey: ['areas'],
@@ -76,6 +95,11 @@ export default function LinesPage() {
   // Line mutations
   const createLineMutation = useMutation({
     mutationFn: async (values: LineForm) => {
+      // Check for duplicate name
+      const isDuplicate = await checkDuplicateLineName(values.name, values.area_id);
+      if (isDuplicate) {
+        throw new Error('Ya existe una línea con este nombre en el área seleccionada');
+      }
       const { error } = await supabase.from('production_lines').insert(values);
       if (error) throw error;
     },
@@ -90,6 +114,11 @@ export default function LinesPage() {
 
   const updateLineMutation = useMutation({
     mutationFn: async ({ id, ...values }: LineForm & { id: string }) => {
+      // Check for duplicate name (excluding current line)
+      const isDuplicate = await checkDuplicateLineName(values.name, values.area_id, id);
+      if (isDuplicate) {
+        throw new Error('Ya existe una línea con este nombre en el área seleccionada');
+      }
       const { error } = await supabase.from('production_lines').update(values).eq('id', id);
       if (error) throw error;
     },
@@ -145,6 +174,8 @@ export default function LinesPage() {
           production_line_id: newLine.id,
           sequence_order: m.sequence_order,
           image_url: m.image_url,
+          serial_number: m.serial_number,
+          nameplate_image_url: m.nameplate_image_url,
         }));
         const { error: insertError } = await supabase.from('machines').insert(newMachines);
         if (insertError) throw insertError;
@@ -203,12 +234,14 @@ export default function LinesPage() {
   });
 
   // Image upload
-  const handleImageUpload = async (file: File) => {
-    setUploadingImage(true);
+  const handleImageUpload = async (file: File, field: 'image_url' | 'nameplate_image_url') => {
+    const setUploading = field === 'image_url' ? setUploadingImage : setUploadingNameplate;
+    setUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
-      const filePath = `machines/${fileName}`;
+      const folder = field === 'image_url' ? 'machines' : 'nameplates';
+      const filePath = `${folder}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('evidence-photos')
@@ -217,12 +250,12 @@ export default function LinesPage() {
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('evidence-photos').getPublicUrl(filePath);
-      machineForm.setValue('image_url', data.publicUrl);
+      machineForm.setValue(field, data.publicUrl);
       toast({ title: 'Imagen subida' });
     } catch (error: any) {
       toast({ title: 'Error al subir imagen', description: error.message, variant: 'destructive' });
     } finally {
-      setUploadingImage(false);
+      setUploading(false);
     }
   };
 
@@ -261,11 +294,13 @@ export default function LinesPage() {
         machine_type: machine.machine_type || '',
         sequence_order: machine.sequence_order || 0,
         image_url: machine.image_url || '',
+        serial_number: machine.serial_number || '',
+        nameplate_image_url: machine.nameplate_image_url || '',
       });
     } else {
       setEditingMachine(null);
       const nextOrder = machines ? Math.max(...machines.map((m) => m.sequence_order || 0), 0) + 1 : 1;
-      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder });
+      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder, serial_number: '', nameplate_image_url: '' });
     }
     setIsMachineDialogOpen(true);
   };
@@ -547,13 +582,66 @@ export default function LinesPage() {
                             accept="image/*"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
-                              if (file) handleImageUpload(file);
+                              if (file) handleImageUpload(file, 'image_url');
                             }}
                             disabled={uploadingImage}
                           />
                         </div>
                       </FormControl>
                       {uploadingImage && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={machineForm.control}
+                name="serial_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Número de Serie</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ej: SN-12345678" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={machineForm.control}
+                name="nameplate_image_url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Foto de Placa del Equipo</FormLabel>
+                    <div className="space-y-2">
+                      {field.value && (
+                        <div className="relative w-32 h-32">
+                          <img src={field.value} alt="Placa" className="w-full h-full object-cover rounded-lg" />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-2 -right-2 w-6 h-6"
+                            onClick={() => machineForm.setValue('nameplate_image_url', '')}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
+                      <FormControl>
+                        <div className="flex gap-2">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageUpload(file, 'nameplate_image_url');
+                            }}
+                            disabled={uploadingNameplate}
+                          />
+                        </div>
+                      </FormControl>
+                      {uploadingNameplate && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
                     </div>
                     <FormMessage />
                   </FormItem>

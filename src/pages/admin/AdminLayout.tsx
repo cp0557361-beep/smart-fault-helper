@@ -2,7 +2,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NavLink } from '@/components/NavLink';
-import { Users, Factory, Wrench, AlertTriangle, BookOpen } from 'lucide-react';
+import { Users, Factory, Wrench, AlertTriangle, BookOpen, Settings2 } from 'lucide-react';
 
 export default function AdminLayout() {
   const { isAdmin, loading } = useAuth();
@@ -50,6 +50,14 @@ export default function AdminLayout() {
         >
           <Wrench className="w-4 h-4" />
           <span>Líneas y Equipos</span>
+        </NavLink>
+        <NavLink
+          to="/admin/machine-types"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:bg-secondary transition-colors"
+          activeClassName="bg-primary text-primary-foreground hover:bg-primary"
+        >
+          <Settings2 className="w-4 h-4" />
+          <span>Plantillas</span>
         </NavLink>
         <NavLink
           to="/admin/faults"
