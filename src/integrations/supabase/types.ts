@@ -201,6 +201,87 @@ export type Database = {
           },
         ]
       }
+      machine_section_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          machine_type: string
+          section_name: string
+          sequence_order: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          machine_type: string
+          section_name: string
+          sequence_order?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          machine_type?: string
+          section_name?: string
+          sequence_order?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      machine_sections: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          machine_id: string
+          name: string
+          sequence_order: number | null
+          status: Database["public"]["Enums"]["machine_status"] | null
+          template_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          machine_id: string
+          name: string
+          sequence_order?: number | null
+          status?: Database["public"]["Enums"]["machine_status"] | null
+          template_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          machine_id?: string
+          name?: string
+          sequence_order?: number | null
+          status?: Database["public"]["Enums"]["machine_status"] | null
+          template_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "machine_sections_machine_id_fkey"
+            columns: ["machine_id"]
+            isOneToOne: false
+            referencedRelation: "machines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "machine_sections_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "machine_section_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       machines: {
         Row: {
           created_at: string
@@ -208,8 +289,10 @@ export type Database = {
           image_url: string | null
           machine_type: string | null
           name: string
+          nameplate_image_url: string | null
           production_line_id: string
           sequence_order: number | null
+          serial_number: string | null
           status: Database["public"]["Enums"]["machine_status"] | null
           updated_at: string
         }
@@ -219,8 +302,10 @@ export type Database = {
           image_url?: string | null
           machine_type?: string | null
           name: string
+          nameplate_image_url?: string | null
           production_line_id: string
           sequence_order?: number | null
+          serial_number?: string | null
           status?: Database["public"]["Enums"]["machine_status"] | null
           updated_at?: string
         }
@@ -230,8 +315,10 @@ export type Database = {
           image_url?: string | null
           machine_type?: string | null
           name?: string
+          nameplate_image_url?: string | null
           production_line_id?: string
           sequence_order?: number | null
+          serial_number?: string | null
           status?: Database["public"]["Enums"]["machine_status"] | null
           updated_at?: string
         }
@@ -309,6 +396,92 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      section_attribute_definitions: {
+        Row: {
+          attribute_name: string
+          attribute_type: string
+          created_at: string
+          id: string
+          is_required: boolean | null
+          options: Json | null
+          sequence_order: number | null
+          template_id: string | null
+        }
+        Insert: {
+          attribute_name: string
+          attribute_type?: string
+          created_at?: string
+          id?: string
+          is_required?: boolean | null
+          options?: Json | null
+          sequence_order?: number | null
+          template_id?: string | null
+        }
+        Update: {
+          attribute_name?: string
+          attribute_type?: string
+          created_at?: string
+          id?: string
+          is_required?: boolean | null
+          options?: Json | null
+          sequence_order?: number | null
+          template_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "section_attribute_definitions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "machine_section_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      section_attribute_values: {
+        Row: {
+          attribute_definition_id: string | null
+          attribute_name: string
+          attribute_value: string | null
+          created_at: string
+          id: string
+          section_id: string
+          updated_at: string
+        }
+        Insert: {
+          attribute_definition_id?: string | null
+          attribute_name: string
+          attribute_value?: string | null
+          created_at?: string
+          id?: string
+          section_id: string
+          updated_at?: string
+        }
+        Update: {
+          attribute_definition_id?: string | null
+          attribute_name?: string
+          attribute_value?: string | null
+          created_at?: string
+          id?: string
+          section_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "section_attribute_values_attribute_definition_id_fkey"
+            columns: ["attribute_definition_id"]
+            isOneToOne: false
+            referencedRelation: "section_attribute_definitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "section_attribute_values_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "machine_sections"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
