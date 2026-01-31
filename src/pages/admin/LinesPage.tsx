@@ -67,6 +67,20 @@ export default function LinesPage() {
     },
   });
 
+  // Fetch unique machine types from templates
+  const { data: machineTypes } = useQuery({
+    queryKey: ['machine-types-dropdown'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('machine_section_templates')
+        .select('machine_type')
+        .order('machine_type');
+      if (error) throw error;
+      const unique = [...new Set(data.map((t) => t.machine_type))];
+      return unique;
+    },
+  });
+
   const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
     queryFn: async () => {
@@ -188,18 +202,72 @@ export default function LinesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Apply template sections and attributes to a machine
+  const applyTemplateToMachine = async (machineId: string, machineType: string) => {
+    // Fetch templates for this machine type
+    const { data: templates, error: templatesError } = await supabase
+      .from('machine_section_templates')
+      .select('*')
+      .eq('machine_type', machineType)
+      .order('sequence_order');
+    if (templatesError) throw templatesError;
+    if (!templates || templates.length === 0) return;
+
+    // Create sections for each template
+    for (const template of templates) {
+      const { data: newSection, error: sectionError } = await supabase
+        .from('machine_sections')
+        .insert({
+          machine_id: machineId,
+          template_id: template.id,
+          name: template.section_name,
+          description: template.description,
+          sequence_order: template.sequence_order,
+        })
+        .select()
+        .single();
+      if (sectionError) throw sectionError;
+
+      // Fetch attribute definitions for this template
+      const { data: attrDefs, error: attrError } = await supabase
+        .from('section_attribute_definitions')
+        .select('*')
+        .eq('template_id', template.id)
+        .order('sequence_order');
+      if (attrError) throw attrError;
+
+      // Create attribute values for each definition
+      if (attrDefs && attrDefs.length > 0) {
+        const attrValues = attrDefs.map((def) => ({
+          section_id: newSection.id,
+          attribute_definition_id: def.id,
+          attribute_name: def.attribute_name,
+          attribute_value: null,
+        }));
+        const { error: insertError } = await supabase.from('section_attribute_values').insert(attrValues);
+        if (insertError) throw insertError;
+      }
+    }
+  };
+
   // Machine mutations
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
-      const { error } = await supabase.from('machines').insert({
+      // Create machine
+      const { data: newMachine, error } = await supabase.from('machines').insert({
         ...values,
         production_line_id: selectedLineId,
-      });
+      }).select().single();
       if (error) throw error;
+
+      // Apply template sections if machine type is set
+      if (values.machine_type) {
+        await applyTemplateToMachine(newMachine.id, values.machine_type);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
-      toast({ title: 'Equipo creado' });
+      toast({ title: 'Equipo creado', description: 'Secciones y atributos aplicados desde la plantilla.' });
       setIsMachineDialogOpen(false);
       machineForm.reset();
     },
@@ -534,9 +602,25 @@ export default function LinesPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo de Equipo</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: Printer, SPI, P&P, Reflow, AOI..." {...field} />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value || ''}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar tipo..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {machineTypes?.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                        {(!machineTypes || machineTypes.length === 0) && (
+                          <SelectItem value="__empty__" disabled>
+                            No hay tipos definidos
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
