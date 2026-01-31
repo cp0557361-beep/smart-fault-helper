@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,9 @@ import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X } from 'lu
 import { useForm } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 
 interface LineForm {
   name: string;
@@ -26,6 +29,18 @@ interface MachineForm {
   image_url?: string;
   serial_number?: string;
   nameplate_image_url?: string;
+  [key: string]: string | number | undefined; // For dynamic template attributes
+}
+
+interface TemplateAttribute {
+  id: string;
+  template_id: string;
+  section_name: string;
+  attribute_name: string;
+  attribute_type: string;
+  is_required: boolean;
+  options: any;
+  sequence_order: number;
 }
 
 export default function LinesPage() {
@@ -38,9 +53,73 @@ export default function LinesPage() {
   const [editingMachine, setEditingMachine] = useState<any>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingNameplate, setUploadingNameplate] = useState(false);
+  const [templateAttributes, setTemplateAttributes] = useState<TemplateAttribute[]>([]);
+  const [loadingAttributes, setLoadingAttributes] = useState(false);
 
   const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
   const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '' } });
+
+  const watchedMachineType = machineForm.watch('machine_type');
+
+  // Fetch template attributes when machine type changes
+  useEffect(() => {
+    const fetchTemplateAttributes = async () => {
+      if (!watchedMachineType) {
+        setTemplateAttributes([]);
+        return;
+      }
+
+      setLoadingAttributes(true);
+      try {
+        // Get all templates for this machine type
+        const { data: templates, error: templatesError } = await supabase
+          .from('machine_section_templates')
+          .select('id, section_name, sequence_order')
+          .eq('machine_type', watchedMachineType)
+          .order('sequence_order');
+
+        if (templatesError) throw templatesError;
+        if (!templates || templates.length === 0) {
+          setTemplateAttributes([]);
+          return;
+        }
+
+        // Get all attribute definitions for these templates
+        const templateIds = templates.map(t => t.id);
+        const { data: attributes, error: attrError } = await supabase
+          .from('section_attribute_definitions')
+          .select('*')
+          .in('template_id', templateIds)
+          .order('sequence_order');
+
+        if (attrError) throw attrError;
+
+        // Map attributes with section names
+        const mappedAttributes: TemplateAttribute[] = (attributes || []).map(attr => {
+          const template = templates.find(t => t.id === attr.template_id);
+          return {
+            id: attr.id,
+            template_id: attr.template_id!,
+            section_name: template?.section_name || '',
+            attribute_name: attr.attribute_name,
+            attribute_type: attr.attribute_type,
+            is_required: attr.is_required || false,
+            options: attr.options,
+            sequence_order: attr.sequence_order || 0,
+          };
+        });
+
+        setTemplateAttributes(mappedAttributes);
+      } catch (error) {
+        console.error('Error fetching template attributes:', error);
+        setTemplateAttributes([]);
+      } finally {
+        setLoadingAttributes(false);
+      }
+    };
+
+    fetchTemplateAttributes();
+  }, [watchedMachineType]);
 
   // Check if line name already exists in the same area
   const checkDuplicateLineName = async (name: string, areaId: string, excludeId?: string): Promise<boolean> => {
@@ -203,7 +282,7 @@ export default function LinesPage() {
   });
 
   // Apply template sections and attributes to a machine
-  const applyTemplateToMachine = async (machineId: string, machineType: string) => {
+  const applyTemplateToMachine = async (machineId: string, machineType: string, attributeValues: Record<string, any>) => {
     // Fetch templates for this machine type
     const { data: templates, error: templatesError } = await supabase
       .from('machine_section_templates')
@@ -236,15 +315,20 @@ export default function LinesPage() {
         .order('sequence_order');
       if (attrError) throw attrError;
 
-      // Create attribute values for each definition
+      // Create attribute values for each definition with user-provided values
       if (attrDefs && attrDefs.length > 0) {
-        const attrValues = attrDefs.map((def) => ({
-          section_id: newSection.id,
-          attribute_definition_id: def.id,
-          attribute_name: def.attribute_name,
-          attribute_value: null,
-        }));
-        const { error: insertError } = await supabase.from('section_attribute_values').insert(attrValues);
+        const attrValuesData = attrDefs.map((def) => {
+          // Generate key to match form field: attr_{templateId}_{attributeId}
+          const fieldKey = `attr_${template.id}_${def.id}`;
+          const providedValue = attributeValues[fieldKey];
+          return {
+            section_id: newSection.id,
+            attribute_definition_id: def.id,
+            attribute_name: def.attribute_name,
+            attribute_value: providedValue || null,
+          };
+        });
+        const { error: insertError } = await supabase.from('section_attribute_values').insert(attrValuesData);
         if (insertError) throw insertError;
       }
     }
@@ -253,16 +337,24 @@ export default function LinesPage() {
   // Machine mutations
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
+      // Extract base machine fields
+      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, ...attributeValues } = values;
+      
       // Create machine
       const { data: newMachine, error } = await supabase.from('machines').insert({
-        ...values,
+        name,
+        machine_type,
+        sequence_order,
+        image_url,
+        serial_number,
+        nameplate_image_url,
         production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
 
       // Apply template sections if machine type is set
-      if (values.machine_type) {
-        await applyTemplateToMachine(newMachine.id, values.machine_type);
+      if (machine_type) {
+        await applyTemplateToMachine(newMachine.id, machine_type, attributeValues);
       }
     },
     onSuccess: () => {
@@ -270,6 +362,7 @@ export default function LinesPage() {
       toast({ title: 'Equipo creado', description: 'Secciones y atributos aplicados desde la plantilla.' });
       setIsMachineDialogOpen(false);
       machineForm.reset();
+      setTemplateAttributes([]);
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
@@ -336,6 +429,25 @@ export default function LinesPage() {
   };
 
   const onMachineSubmit = (values: MachineForm) => {
+    // Validate required template attributes
+    const missingRequired: string[] = [];
+    templateAttributes.filter(attr => attr.is_required).forEach(attr => {
+      const fieldKey = `attr_${attr.template_id}_${attr.id}`;
+      const value = values[fieldKey];
+      if (!value || (typeof value === 'string' && value.trim() === '')) {
+        missingRequired.push(`${attr.section_name} → ${attr.attribute_name}`);
+      }
+    });
+
+    if (missingRequired.length > 0) {
+      toast({
+        title: 'Campos requeridos faltantes',
+        description: `Completa: ${missingRequired.join(', ')}`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (editingMachine) {
       updateMachineMutation.mutate({ id: editingMachine.id, ...values });
     } else {
@@ -355,6 +467,7 @@ export default function LinesPage() {
   };
 
   const openMachineDialog = (machine?: any) => {
+    setTemplateAttributes([]);
     if (machine) {
       setEditingMachine(machine);
       machineForm.reset({
@@ -576,172 +689,269 @@ export default function LinesPage() {
 
       {/* Machine Dialog */}
       <Dialog open={isMachineDialogOpen} onOpenChange={setIsMachineDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingMachine ? 'Editar Equipo' : 'Nuevo Equipo'}</DialogTitle>
           </DialogHeader>
-          <Form {...machineForm}>
-            <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="space-y-4">
-              <FormField
-                control={machineForm.control}
-                name="name"
-                rules={{ required: 'El nombre es requerido' }}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: Impresora DEK" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={machineForm.control}
-                name="machine_type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tipo de Equipo</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ''}>
+          <ScrollArea className="flex-1 pr-4">
+            <Form {...machineForm}>
+              <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="space-y-4">
+                <FormField
+                  control={machineForm.control}
+                  name="name"
+                  rules={{ required: 'El nombre es requerido' }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nombre</FormLabel>
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleccionar tipo..." />
-                        </SelectTrigger>
+                        <Input placeholder="Ej: Impresora DEK" {...field} />
                       </FormControl>
-                      <SelectContent>
-                        {machineTypes?.map((type) => (
-                          <SelectItem key={type} value={type}>
-                            {type}
-                          </SelectItem>
-                        ))}
-                        {(!machineTypes || machineTypes.length === 0) && (
-                          <SelectItem value="__empty__" disabled>
-                            No hay tipos definidos
-                          </SelectItem>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="machine_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo de Equipo</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar tipo..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {machineTypes?.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                          {(!machineTypes || machineTypes.length === 0) && (
+                            <SelectItem value="__empty__" disabled>
+                              No hay tipos definidos
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="sequence_order"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Orden en Línea</FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="image_url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Imagen del Equipo</FormLabel>
+                      <div className="space-y-2">
+                        {field.value && (
+                          <div className="relative w-32 h-32">
+                            <img src={field.value} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-2 -right-2 w-6 h-6"
+                              onClick={() => machineForm.setValue('image_url', '')}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
                         )}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={machineForm.control}
-                name="sequence_order"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Orden en Línea</FormLabel>
-                    <FormControl>
-                      <Input type="number" min={0} {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={machineForm.control}
-                name="image_url"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Imagen del Equipo</FormLabel>
-                    <div className="space-y-2">
-                      {field.value && (
-                        <div className="relative w-32 h-32">
-                          <img src={field.value} alt="Preview" className="w-full h-full object-cover rounded-lg" />
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="absolute -top-2 -right-2 w-6 h-6"
-                            onClick={() => machineForm.setValue('image_url', '')}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
+                        <FormControl>
+                          <div className="flex gap-2">
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, 'image_url');
+                              }}
+                              disabled={uploadingImage}
+                            />
+                          </div>
+                        </FormControl>
+                        {uploadingImage && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="serial_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Número de Serie</FormLabel>
                       <FormControl>
-                        <div className="flex gap-2">
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleImageUpload(file, 'image_url');
-                            }}
-                            disabled={uploadingImage}
-                          />
-                        </div>
+                        <Input placeholder="Ej: SN-12345678" {...field} />
                       </FormControl>
-                      {uploadingImage && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="nameplate_image_url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Foto de Placa del Equipo</FormLabel>
+                      <div className="space-y-2">
+                        {field.value && (
+                          <div className="relative w-32 h-32">
+                            <img src={field.value} alt="Placa" className="w-full h-full object-cover rounded-lg" />
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-2 -right-2 w-6 h-6"
+                              onClick={() => machineForm.setValue('nameplate_image_url', '')}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
+                        <FormControl>
+                          <div className="flex gap-2">
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, 'nameplate_image_url');
+                              }}
+                              disabled={uploadingNameplate}
+                            />
+                          </div>
+                        </FormControl>
+                        {uploadingNameplate && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Dynamic Template Attributes */}
+                {loadingAttributes && (
+                  <div className="flex items-center gap-2 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Cargando atributos de la plantilla...</span>
+                  </div>
+                )}
+
+                {!loadingAttributes && templateAttributes.length > 0 && !editingMachine && (
+                  <div className="space-y-4 pt-2">
+                    <Separator />
+                    <div>
+                      <h4 className="text-sm font-semibold mb-3">Atributos del Tipo de Equipo</h4>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Completa los campos requeridos marcados con <span className="text-destructive">*</span>
+                      </p>
                     </div>
-                    <FormMessage />
-                  </FormItem>
+                    
+                    {/* Group attributes by section */}
+                    {(() => {
+                      const sections = [...new Set(templateAttributes.map(a => a.section_name))];
+                      return sections.map(sectionName => {
+                        const sectionAttrs = templateAttributes.filter(a => a.section_name === sectionName);
+                        return (
+                          <div key={sectionName} className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                {sectionName}
+                              </Badge>
+                            </div>
+                            {sectionAttrs.map(attr => {
+                              const fieldKey = `attr_${attr.template_id}_${attr.id}`;
+                              return (
+                                <FormField
+                                  key={attr.id}
+                                  control={machineForm.control}
+                                  name={fieldKey as any}
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="flex items-center gap-1">
+                                        {attr.attribute_name}
+                                        {attr.is_required && <span className="text-destructive">*</span>}
+                                      </FormLabel>
+                                      <FormControl>
+                                        {attr.attribute_type === 'select' && attr.options ? (
+                                          <Select 
+                                            onValueChange={field.onChange} 
+                                            value={field.value as string || ''}
+                                          >
+                                            <SelectTrigger>
+                                              <SelectValue placeholder={`Seleccionar ${attr.attribute_name}...`} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {(attr.options as string[]).map((option: string) => (
+                                                <SelectItem key={option} value={option}>
+                                                  {option}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        ) : attr.attribute_type === 'number' ? (
+                                          <Input
+                                            type="number"
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        ) : attr.attribute_type === 'textarea' ? (
+                                          <Textarea
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        ) : (
+                                          <Input
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        )}
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
                 )}
-              />
-              <FormField
-                control={machineForm.control}
-                name="serial_number"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Número de Serie</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Ej: SN-12345678" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={machineForm.control}
-                name="nameplate_image_url"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Foto de Placa del Equipo</FormLabel>
-                    <div className="space-y-2">
-                      {field.value && (
-                        <div className="relative w-32 h-32">
-                          <img src={field.value} alt="Placa" className="w-full h-full object-cover rounded-lg" />
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="absolute -top-2 -right-2 w-6 h-6"
-                            onClick={() => machineForm.setValue('nameplate_image_url', '')}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
-                      <FormControl>
-                        <div className="flex gap-2">
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleImageUpload(file, 'nameplate_image_url');
-                            }}
-                            disabled={uploadingNameplate}
-                          />
-                        </div>
-                      </FormControl>
-                      {uploadingNameplate && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={createMachineMutation.isPending || updateMachineMutation.isPending}>
-                  {(createMachineMutation.isPending || updateMachineMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                  {editingMachine ? 'Guardar' : 'Crear'}
-                </Button>
-              </div>
-            </form>
-          </Form>
+
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={createMachineMutation.isPending || updateMachineMutation.isPending}>
+                    {(createMachineMutation.isPending || updateMachineMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                    {editingMachine ? 'Guardar' : 'Crear'}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>
