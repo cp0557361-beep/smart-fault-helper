@@ -97,16 +97,96 @@ export default function MachineTypesPage() {
     },
   });
 
+  // Sync template changes to all machines of the same type
+  const syncTemplateToMachines = async (templateId: string, template: TemplateForm) => {
+    // Find all machine_sections that use this template
+    const { data: sections, error: sectionsError } = await supabase
+      .from('machine_sections')
+      .select('id')
+      .eq('template_id', templateId);
+    if (sectionsError) throw sectionsError;
+
+    // Update all sections with the new template values
+    if (sections && sections.length > 0) {
+      const { error: updateError } = await supabase
+        .from('machine_sections')
+        .update({
+          name: template.section_name,
+          description: template.description,
+          sequence_order: template.sequence_order,
+        })
+        .eq('template_id', templateId);
+      if (updateError) throw updateError;
+    }
+  };
+
+  // Add new template section to existing machines
+  const addTemplateSectionToExistingMachines = async (template: TemplateForm, templateId: string) => {
+    // Find all machines with this machine_type that don't have this section yet
+    const { data: machines, error: machinesError } = await supabase
+      .from('machines')
+      .select('id')
+      .eq('machine_type', template.machine_type);
+    if (machinesError) throw machinesError;
+
+    if (machines && machines.length > 0) {
+      // For each machine, check if it has this template section
+      for (const machine of machines) {
+        const { data: existing } = await supabase
+          .from('machine_sections')
+          .select('id')
+          .eq('machine_id', machine.id)
+          .eq('template_id', templateId)
+          .single();
+
+        // Only add if doesn't exist
+        if (!existing) {
+          const { data: newSection, error: sectionError } = await supabase
+            .from('machine_sections')
+            .insert({
+              machine_id: machine.id,
+              template_id: templateId,
+              name: template.section_name,
+              description: template.description,
+              sequence_order: template.sequence_order,
+            })
+            .select()
+            .single();
+          if (sectionError) throw sectionError;
+
+          // Fetch attribute definitions
+          const { data: attrDefs } = await supabase
+            .from('section_attribute_definitions')
+            .select('*')
+            .eq('template_id', templateId);
+
+          if (attrDefs && attrDefs.length > 0) {
+            const attrValues = attrDefs.map((def) => ({
+              section_id: newSection.id,
+              attribute_definition_id: def.id,
+              attribute_name: def.attribute_name,
+              attribute_value: null,
+            }));
+            await supabase.from('section_attribute_values').insert(attrValues);
+          }
+        }
+      }
+    }
+  };
+
   // Template mutations
   const createTemplateMutation = useMutation({
     mutationFn: async (values: TemplateForm) => {
-      const { error } = await supabase.from('machine_section_templates').insert(values);
+      const { data, error } = await supabase.from('machine_section_templates').insert(values).select().single();
       if (error) throw error;
+      // Add this new section to all existing machines of this type
+      await addTemplateSectionToExistingMachines(values, data.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-templates'] });
       queryClient.invalidateQueries({ queryKey: ['machine-types'] });
-      toast({ title: 'Sección creada' });
+      queryClient.invalidateQueries({ queryKey: ['machine-types-dropdown'] });
+      toast({ title: 'Sección creada', description: 'Aplicada a equipos existentes del mismo tipo.' });
       setIsTemplateDialogOpen(false);
       templateForm.reset();
     },
@@ -117,11 +197,14 @@ export default function MachineTypesPage() {
     mutationFn: async ({ id, ...values }: TemplateForm & { id: string }) => {
       const { error } = await supabase.from('machine_section_templates').update(values).eq('id', id);
       if (error) throw error;
+      // Sync changes to all machines using this template
+      await syncTemplateToMachines(id, values);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-templates'] });
       queryClient.invalidateQueries({ queryKey: ['machine-types'] });
-      toast({ title: 'Sección actualizada' });
+      queryClient.invalidateQueries({ queryKey: ['machine-types-dropdown'] });
+      toast({ title: 'Sección actualizada', description: 'Cambios sincronizados con equipos existentes.' });
       setIsTemplateDialogOpen(false);
       setEditingTemplate(null);
       templateForm.reset();
@@ -131,30 +214,71 @@ export default function MachineTypesPage() {
 
   const deleteTemplateMutation = useMutation({
     mutationFn: async (id: string) => {
+      // Delete associated sections first (will cascade to attribute values via FK)
+      const { error: sectionsError } = await supabase
+        .from('machine_sections')
+        .delete()
+        .eq('template_id', id);
+      if (sectionsError) throw sectionsError;
+      
       const { error } = await supabase.from('machine_section_templates').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-templates'] });
       queryClient.invalidateQueries({ queryKey: ['machine-types'] });
-      toast({ title: 'Sección eliminada' });
+      queryClient.invalidateQueries({ queryKey: ['machine-types-dropdown'] });
+      toast({ title: 'Sección eliminada', description: 'Eliminada también de equipos existentes.' });
       if (selectedTemplateId) setSelectedTemplateId(null);
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Sync attribute changes to existing sections
+  const syncAttributeToSections = async (attrDefId: string, attrName: string) => {
+    // Update all attribute values that reference this definition
+    const { error } = await supabase
+      .from('section_attribute_values')
+      .update({ attribute_name: attrName })
+      .eq('attribute_definition_id', attrDefId);
+    if (error) throw error;
+  };
+
+  // Add new attribute to existing sections
+  const addAttributeToExistingSections = async (attrDefId: string, attrName: string, templateId: string) => {
+    // Find all sections that use this template
+    const { data: sections, error: sectionsError } = await supabase
+      .from('machine_sections')
+      .select('id')
+      .eq('template_id', templateId);
+    if (sectionsError) throw sectionsError;
+
+    if (sections && sections.length > 0) {
+      const attrValues = sections.map((section) => ({
+        section_id: section.id,
+        attribute_definition_id: attrDefId,
+        attribute_name: attrName,
+        attribute_value: null,
+      }));
+      const { error } = await supabase.from('section_attribute_values').insert(attrValues);
+      if (error) throw error;
+    }
+  };
+
   // Attribute mutations
   const createAttributeMutation = useMutation({
     mutationFn: async (values: AttributeForm) => {
-      const { error } = await supabase.from('section_attribute_definitions').insert({
+      const { data, error } = await supabase.from('section_attribute_definitions').insert({
         ...values,
         template_id: selectedTemplateId,
-      });
+      }).select().single();
       if (error) throw error;
+      // Add this attribute to all existing sections using this template
+      await addAttributeToExistingSections(data.id, values.attribute_name, selectedTemplateId!);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
-      toast({ title: 'Atributo creado' });
+      toast({ title: 'Atributo creado', description: 'Agregado a secciones existentes.' });
       setIsAttributeDialogOpen(false);
       attributeForm.reset();
     },
@@ -165,10 +289,12 @@ export default function MachineTypesPage() {
     mutationFn: async ({ id, ...values }: AttributeForm & { id: string }) => {
       const { error } = await supabase.from('section_attribute_definitions').update(values).eq('id', id);
       if (error) throw error;
+      // Sync name change to existing attribute values
+      await syncAttributeToSections(id, values.attribute_name);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
-      toast({ title: 'Atributo actualizado' });
+      toast({ title: 'Atributo actualizado', description: 'Cambios sincronizados.' });
       setIsAttributeDialogOpen(false);
       setEditingAttribute(null);
       attributeForm.reset();
@@ -178,12 +304,19 @@ export default function MachineTypesPage() {
 
   const deleteAttributeMutation = useMutation({
     mutationFn: async (id: string) => {
+      // Delete attribute values first
+      const { error: valuesError } = await supabase
+        .from('section_attribute_values')
+        .delete()
+        .eq('attribute_definition_id', id);
+      if (valuesError) throw valuesError;
+      
       const { error } = await supabase.from('section_attribute_definitions').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
-      toast({ title: 'Atributo eliminado' });
+      toast({ title: 'Atributo eliminado', description: 'Eliminado de todas las secciones.' });
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
