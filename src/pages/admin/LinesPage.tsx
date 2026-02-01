@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X, Eye } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X, Settings2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { MachineSectionsPanel } from '@/components/plant/MachineSectionsPanel';
+import { EditSectionAttributesDialog } from '@/components/plant/EditSectionAttributesDialog';
 
 interface LineForm {
   name: string;
@@ -56,6 +57,7 @@ export default function LinesPage() {
   const [uploadingNameplate, setUploadingNameplate] = useState(false);
   const [templateAttributes, setTemplateAttributes] = useState<TemplateAttribute[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
+  const [editingAttributesMachine, setEditingAttributesMachine] = useState<{ id: string; name: string } | null>(null);
 
   const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
   const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '' } });
@@ -598,6 +600,14 @@ export default function LinesPage() {
                       <p className="text-sm text-muted-foreground">{machine.machine_type || 'Sin tipo'}</p>
                     </div>
                     <div className="flex gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        title="Editar atributos de secciones"
+                        onClick={() => setEditingAttributesMachine({ id: machine.id, name: machine.name })}
+                      >
+                        <Settings2 className="w-4 h-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => openMachineDialog(machine)}>
                         <Pencil className="w-4 h-4" />
                       </Button>
@@ -961,6 +971,16 @@ export default function LinesPage() {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Section Attributes Dialog */}
+      {editingAttributesMachine && (
+        <EditSectionAttributesDialog
+          open={!!editingAttributesMachine}
+          onOpenChange={(open) => !open && setEditingAttributesMachine(null)}
+          machineId={editingAttributesMachine.id}
+          machineName={editingAttributesMachine.name}
+        />
+      )}
     </div>
   );
 }
