@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { AreaBlock } from '@/components/plant/AreaBlock';
 import { ProductionLine } from '@/components/plant/ProductionLine';
 import { SmartCaptureForm } from '@/components/capture/SmartCaptureForm';
+import { MachineDetailSheet } from '@/components/plant/MachineDetailSheet';
 import { useReportContext } from '@/hooks/useReportContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -56,6 +57,8 @@ export default function DashboardPage() {
   const [areaStats, setAreaStats] = useState<Record<string, AreaStats>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [detailMachineId, setDetailMachineId] = useState<string | null>(null);
+  const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -128,6 +131,12 @@ export default function DashboardPage() {
   };
 
   const handleMachineClick = (machineId: string) => {
+    // Show machine detail sheet instead of going to capture form
+    setDetailMachineId(machineId);
+    setIsDetailSheetOpen(true);
+  };
+
+  const handleMachineCaptureClick = (machineId: string) => {
     const machine = machines.find(m => m.id === machineId);
     if (machine) {
       setSelectedMachine(machine);
@@ -165,6 +174,23 @@ export default function DashboardPage() {
           description: `${machine.name} en ${common.lineName}`,
         });
       }
+    }
+  };
+
+  // Callback for starting capture from detail sheet
+  const handleStartCapture = (machineId: string) => {
+    const machine = machines.find(m => m.id === machineId);
+    if (machine) {
+      const line = lines.find(l => l.id === machine.production_line_id);
+      if (line) {
+        const area = areas.find(a => a.id === line.area_id);
+        if (area) {
+          setSelectedArea(area);
+        }
+      }
+      setSelectedMachine(machine);
+      setIsDetailSheetOpen(false);
+      setViewState('capture');
     }
   };
 
@@ -208,6 +234,14 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 pb-24 lg:pb-4 space-y-6">
+      {/* Machine Detail Sheet */}
+      <MachineDetailSheet 
+        machineId={detailMachineId}
+        open={isDetailSheetOpen}
+        onOpenChange={setIsDetailSheetOpen}
+        onReportFault={handleStartCapture}
+      />
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
