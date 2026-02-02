@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight, X } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight, X, Copy } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
@@ -335,6 +335,138 @@ export default function MachineTypesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Duplicate machine type (all sections + attributes)
+  const duplicateMachineTypeMutation = useMutation({
+    mutationFn: async (machineType: string) => {
+      const newTypeName = `${machineType} (Copia)`;
+      
+      // Get all templates for this type
+      const { data: templatesData, error: templatesError } = await supabase
+        .from('machine_section_templates')
+        .select('*')
+        .eq('machine_type', machineType);
+      if (templatesError) throw templatesError;
+
+      for (const template of templatesData || []) {
+        // Create new template
+        const { data: newTemplate, error: newTemplateError } = await supabase
+          .from('machine_section_templates')
+          .insert({
+            machine_type: newTypeName,
+            section_name: template.section_name,
+            description: template.description,
+            sequence_order: template.sequence_order,
+          })
+          .select()
+          .single();
+        if (newTemplateError) throw newTemplateError;
+
+        // Get attributes for this template
+        const { data: attrs, error: attrsError } = await supabase
+          .from('section_attribute_definitions')
+          .select('*')
+          .eq('template_id', template.id);
+        if (attrsError) throw attrsError;
+
+        // Copy attributes to new template
+        for (const attr of attrs || []) {
+          await supabase.from('section_attribute_definitions').insert({
+            template_id: newTemplate.id,
+            attribute_name: attr.attribute_name,
+            attribute_type: attr.attribute_type,
+            is_required: attr.is_required,
+            sequence_order: attr.sequence_order,
+            options: attr.options,
+          });
+        }
+      }
+      return newTypeName;
+    },
+    onSuccess: (newTypeName) => {
+      queryClient.invalidateQueries({ queryKey: ['machine-types'] });
+      queryClient.invalidateQueries({ queryKey: ['section-templates'] });
+      setSelectedType(newTypeName);
+      toast({ title: 'Tipo duplicado', description: `Se creó "${newTypeName}" con todas sus secciones y atributos.` });
+    },
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
+  // Duplicate section (with all attributes)
+  const duplicateSectionMutation = useMutation({
+    mutationFn: async (template: any) => {
+      // Create new template
+      const { data: newTemplate, error: newTemplateError } = await supabase
+        .from('machine_section_templates')
+        .insert({
+          machine_type: template.machine_type,
+          section_name: `${template.section_name} (Copia)`,
+          description: template.description,
+          sequence_order: (template.sequence_order || 0) + 1,
+        })
+        .select()
+        .single();
+      if (newTemplateError) throw newTemplateError;
+
+      // Get attributes for this template
+      const { data: attrs, error: attrsError } = await supabase
+        .from('section_attribute_definitions')
+        .select('*')
+        .eq('template_id', template.id);
+      if (attrsError) throw attrsError;
+
+      // Copy attributes to new template
+      for (const attr of attrs || []) {
+        const { data: newAttr, error: newAttrError } = await supabase.from('section_attribute_definitions').insert({
+          template_id: newTemplate.id,
+          attribute_name: attr.attribute_name,
+          attribute_type: attr.attribute_type,
+          is_required: attr.is_required,
+          sequence_order: attr.sequence_order,
+          options: attr.options,
+        }).select().single();
+        if (newAttrError) throw newAttrError;
+      }
+
+      // Add this section to all existing machines of this type
+      await addTemplateSectionToExistingMachines(
+        { machine_type: template.machine_type, section_name: `${template.section_name} (Copia)`, description: template.description, sequence_order: (template.sequence_order || 0) + 1 },
+        newTemplate.id
+      );
+
+      return newTemplate;
+    },
+    onSuccess: (newTemplate) => {
+      queryClient.invalidateQueries({ queryKey: ['section-templates'] });
+      setSelectedTemplateId(newTemplate.id);
+      toast({ title: 'Sección duplicada', description: 'Se copió la sección con todos sus atributos.' });
+    },
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
+  // Duplicate attribute
+  const duplicateAttributeMutation = useMutation({
+    mutationFn: async (attr: any) => {
+      const { data: newAttr, error } = await supabase.from('section_attribute_definitions').insert({
+        template_id: selectedTemplateId,
+        attribute_name: `${attr.attribute_name} (Copia)`,
+        attribute_type: attr.attribute_type,
+        is_required: attr.is_required,
+        sequence_order: (attr.sequence_order || 0) + 1,
+        options: attr.options,
+      }).select().single();
+      if (error) throw error;
+
+      // Add this attribute to all existing sections using this template
+      await addAttributeToExistingSections(newAttr.id, `${attr.attribute_name} (Copia)`, selectedTemplateId!);
+      return newAttr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
+      toast({ title: 'Atributo duplicado', description: 'Se copió el atributo a la sección.' });
+    },
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
   const openTemplateDialog = (template?: any) => {
     if (template) {
       setEditingTemplate(template);
@@ -446,23 +578,40 @@ export default function MachineTypesPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {machineTypes?.map((type) => (
-              <button
+              <div
                 key={type}
-                onClick={() => {
-                  setSelectedType(type);
-                  setSelectedTemplateId(null);
-                }}
                 className={cn(
-                  'w-full flex items-center justify-between p-3 rounded-lg border transition-colors text-left',
+                  'flex items-center justify-between p-3 rounded-lg border transition-colors',
                   selectedType === type ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
                 )}
               >
-                <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setSelectedType(type);
+                    setSelectedTemplateId(null);
+                  }}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
                   <Settings2 className="w-4 h-4 text-muted-foreground" />
                   <span className="font-medium">{type}</span>
+                </button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      duplicateMachineTypeMutation.mutate(type);
+                    }}
+                    disabled={duplicateMachineTypeMutation.isPending}
+                    title="Duplicar tipo de equipo"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </button>
+              </div>
             ))}
             {(!machineTypes || machineTypes.length === 0) && (
               <p className="text-center text-muted-foreground py-4">
@@ -506,6 +655,18 @@ export default function MachineTypesPage() {
                       )}
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          duplicateSectionMutation.mutate(template);
+                        }}
+                        disabled={duplicateSectionMutation.isPending}
+                        title="Duplicar sección"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -588,6 +749,15 @@ export default function MachineTypesPage() {
                         </div>
                       </div>
                       <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => duplicateAttributeMutation.mutate(attr)}
+                          disabled={duplicateAttributeMutation.isPending}
+                          title="Duplicar atributo"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => openAttributeDialog(attr)}>
                           <Pencil className="w-4 h-4" />
                         </Button>
