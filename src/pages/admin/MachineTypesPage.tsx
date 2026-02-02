@@ -8,11 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight } from 'lucide-react';
-import { useForm } from 'react-hook-form';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight, X } from 'lucide-react';
+import { useForm, useWatch } from 'react-hook-form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 
 interface TemplateForm {
   machine_type: string;
@@ -26,6 +27,7 @@ interface AttributeForm {
   attribute_type: string;
   is_required: boolean;
   sequence_order: number;
+  options: string[];
 }
 
 const ATTRIBUTE_TYPES = [
@@ -34,6 +36,7 @@ const ATTRIBUTE_TYPES = [
   { value: 'boolean', label: 'Sí/No' },
   { value: 'date', label: 'Fecha' },
   { value: 'select', label: 'Selección' },
+  { value: 'textarea', label: 'Texto largo' },
 ];
 
 export default function MachineTypesPage() {
@@ -44,14 +47,18 @@ export default function MachineTypesPage() {
   const [isAttributeDialogOpen, setIsAttributeDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
   const [editingAttribute, setEditingAttribute] = useState<any>(null);
+  const [newOptionValue, setNewOptionValue] = useState('');
 
   const templateForm = useForm<TemplateForm>({
     defaultValues: { machine_type: '', section_name: '', description: '', sequence_order: 0 },
   });
 
   const attributeForm = useForm<AttributeForm>({
-    defaultValues: { attribute_name: '', attribute_type: 'text', is_required: false, sequence_order: 0 },
+    defaultValues: { attribute_name: '', attribute_type: 'text', is_required: false, sequence_order: 0, options: [] },
   });
+
+  const watchedAttributeType = useWatch({ control: attributeForm.control, name: 'attribute_type' });
+  const watchedOptions = useWatch({ control: attributeForm.control, name: 'options' }) || [];
 
   // Fetch unique machine types
   const { data: machineTypes } = useQuery({
@@ -268,8 +275,10 @@ export default function MachineTypesPage() {
   // Attribute mutations
   const createAttributeMutation = useMutation({
     mutationFn: async (values: AttributeForm) => {
+      const { options, ...rest } = values;
       const { data, error } = await supabase.from('section_attribute_definitions').insert({
-        ...values,
+        ...rest,
+        options: values.attribute_type === 'select' ? options : null,
         template_id: selectedTemplateId,
       }).select().single();
       if (error) throw error;
@@ -280,14 +289,18 @@ export default function MachineTypesPage() {
       queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
       toast({ title: 'Atributo creado', description: 'Agregado a secciones existentes.' });
       setIsAttributeDialogOpen(false);
-      attributeForm.reset();
+      attributeForm.reset({ attribute_name: '', attribute_type: 'text', is_required: false, sequence_order: 0, options: [] });
+      setNewOptionValue('');
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   const updateAttributeMutation = useMutation({
-    mutationFn: async ({ id, ...values }: AttributeForm & { id: string }) => {
-      const { error } = await supabase.from('section_attribute_definitions').update(values).eq('id', id);
+    mutationFn: async ({ id, options, ...values }: AttributeForm & { id: string }) => {
+      const { error } = await supabase.from('section_attribute_definitions').update({
+        ...values,
+        options: values.attribute_type === 'select' ? options : null,
+      }).eq('id', id);
       if (error) throw error;
       // Sync name change to existing attribute values
       await syncAttributeToSections(id, values.attribute_name);
@@ -297,7 +310,8 @@ export default function MachineTypesPage() {
       toast({ title: 'Atributo actualizado', description: 'Cambios sincronizados.' });
       setIsAttributeDialogOpen(false);
       setEditingAttribute(null);
-      attributeForm.reset();
+      attributeForm.reset({ attribute_name: '', attribute_type: 'text', is_required: false, sequence_order: 0, options: [] });
+      setNewOptionValue('');
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
@@ -344,13 +358,16 @@ export default function MachineTypesPage() {
   };
 
   const openAttributeDialog = (attribute?: any) => {
+    setNewOptionValue('');
     if (attribute) {
       setEditingAttribute(attribute);
+      const existingOptions = Array.isArray(attribute.options) ? attribute.options : [];
       attributeForm.reset({
         attribute_name: attribute.attribute_name,
         attribute_type: attribute.attribute_type,
         is_required: attribute.is_required || false,
         sequence_order: attribute.sequence_order || 0,
+        options: existingOptions,
       });
     } else {
       setEditingAttribute(null);
@@ -360,9 +377,22 @@ export default function MachineTypesPage() {
         attribute_type: 'text',
         is_required: false,
         sequence_order: nextOrder,
+        options: [],
       });
     }
     setIsAttributeDialogOpen(true);
+  };
+
+  const addOption = () => {
+    const trimmed = newOptionValue.trim();
+    if (trimmed && !watchedOptions.includes(trimmed)) {
+      attributeForm.setValue('options', [...watchedOptions, trimmed]);
+      setNewOptionValue('');
+    }
+  };
+
+  const removeOption = (optionToRemove: string) => {
+    attributeForm.setValue('options', watchedOptions.filter((opt: string) => opt !== optionToRemove));
   };
 
   const onTemplateSubmit = (values: TemplateForm) => {
@@ -374,6 +404,16 @@ export default function MachineTypesPage() {
   };
 
   const onAttributeSubmit = (values: AttributeForm) => {
+    // Validate that select type has at least one option
+    if (values.attribute_type === 'select' && (!values.options || values.options.length === 0)) {
+      toast({
+        title: 'Error de validación',
+        description: 'Los atributos de tipo "Selección" requieren al menos una opción.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     if (editingAttribute) {
       updateAttributeMutation.mutate({ id: editingAttribute.id, ...values });
     } else {
@@ -523,37 +563,47 @@ export default function MachineTypesPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {attributes?.map((attr) => (
-                  <div key={attr.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-secondary">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{attr.attribute_name}</p>
-                        {attr.is_required && (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">
-                            Requerido
+                {attributes?.map((attr) => {
+                  const options = Array.isArray(attr.options) ? attr.options : [];
+                  return (
+                    <div key={attr.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-secondary">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{attr.attribute_name}</p>
+                          {attr.is_required && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">
+                              Requerido
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>
+                            {ATTRIBUTE_TYPES.find((t) => t.value === attr.attribute_type)?.label || attr.attribute_type}
                           </span>
-                        )}
+                          {attr.attribute_type === 'select' && options.length > 0 && (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                              {options.length} opciones
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {ATTRIBUTE_TYPES.find((t) => t.value === attr.attribute_type)?.label || attr.attribute_type}
-                      </p>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openAttributeDialog(attr)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (confirm('¿Eliminar atributo?')) deleteAttributeMutation.mutate(attr.id);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => openAttributeDialog(attr)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          if (confirm('¿Eliminar atributo?')) deleteAttributeMutation.mutate(attr.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {attributes?.length === 0 && (
                   <p className="text-center text-muted-foreground py-4">
                     No hay atributos definidos
@@ -697,6 +747,56 @@ export default function MachineTypesPage() {
                   </FormItem>
                 )}
               />
+              
+              {/* Options field - only shown when type is 'select' */}
+              {watchedAttributeType === 'select' && (
+                <FormItem>
+                  <FormLabel>Opciones de Selección</FormLabel>
+                  <FormDescription>
+                    Agrega las opciones que aparecerán en la lista desplegable
+                  </FormDescription>
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Ej: Cabezal tipo A, Cabezal tipo B..."
+                        value={newOptionValue}
+                        onChange={(e) => setNewOptionValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addOption();
+                          }
+                        }}
+                      />
+                      <Button type="button" variant="secondary" onClick={addOption}>
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    {watchedOptions.length > 0 && (
+                      <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-muted/30">
+                        {watchedOptions.map((option: string, index: number) => (
+                          <Badge key={index} variant="secondary" className="gap-1 pr-1">
+                            {option}
+                            <button
+                              type="button"
+                              onClick={() => removeOption(option)}
+                              className="ml-1 rounded-full hover:bg-destructive/20 p-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {watchedOptions.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No hay opciones agregadas. Escribe una opción y presiona Enter o el botón +
+                      </p>
+                    )}
+                  </div>
+                </FormItem>
+              )}
+
               <FormField
                 control={attributeForm.control}
                 name="is_required"
