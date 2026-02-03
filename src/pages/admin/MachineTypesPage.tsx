@@ -51,7 +51,7 @@ export default function MachineTypesPage() {
   
   // State for machine type dialogs
   const [isMachineTypeDialogOpen, setIsMachineTypeDialogOpen] = useState(false);
-  const [machineTypeDialogMode, setMachineTypeDialogMode] = useState<'edit' | 'duplicate'>('edit');
+  const [machineTypeDialogMode, setMachineTypeDialogMode] = useState<'create' | 'edit' | 'duplicate'>('create');
   const [machineTypeToEdit, setMachineTypeToEdit] = useState<string | null>(null);
   const [newMachineTypeName, setNewMachineTypeName] = useState('');
 
@@ -66,17 +66,16 @@ export default function MachineTypesPage() {
   const watchedAttributeType = useWatch({ control: attributeForm.control, name: 'attribute_type' });
   const watchedOptions = useWatch({ control: attributeForm.control, name: 'options' }) || [];
 
-  // Fetch unique machine types
+  // Fetch machine types from dedicated table
   const { data: machineTypes } = useQuery({
     queryKey: ['machine-types'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('machine_section_templates')
-        .select('machine_type')
-        .order('machine_type');
+        .from('machine_types')
+        .select('*')
+        .order('name');
       if (error) throw error;
-      const unique = [...new Set(data.map((t) => t.machine_type))];
-      return unique;
+      return data;
     },
   });
 
@@ -341,6 +340,36 @@ export default function MachineTypesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Create new machine type
+  const createMachineTypeMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const { data: existing } = await supabase
+        .from('machine_types')
+        .select('id')
+        .eq('name', name)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        throw new Error(`Ya existe un tipo de equipo con el nombre "${name}"`);
+      }
+      
+      const { data, error } = await supabase
+        .from('machine_types')
+        .insert({ name })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['machine-types'] });
+      setSelectedType(data.name);
+      setIsMachineTypeDialogOpen(false);
+      setNewMachineTypeName('');
+      toast({ title: 'Tipo creado', description: `Se creó el tipo "${data.name}".` });
+    },
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
   // Rename machine type
   const renameMachineTypeMutation = useMutation({
     mutationFn: async ({ oldName, newName }: { oldName: string; newName: string }) => {
@@ -348,13 +377,20 @@ export default function MachineTypesPage() {
       
       // Check if new name already exists
       const { data: existing } = await supabase
-        .from('machine_section_templates')
+        .from('machine_types')
         .select('id')
-        .eq('machine_type', newName)
+        .eq('name', newName)
         .limit(1);
       if (existing && existing.length > 0) {
         throw new Error(`Ya existe un tipo de equipo con el nombre "${newName}"`);
       }
+      
+      // Update the machine_types table
+      const { error: typeError } = await supabase
+        .from('machine_types')
+        .update({ name: newName })
+        .eq('name', oldName);
+      if (typeError) throw typeError;
       
       // Update all templates with this machine_type
       const { error } = await supabase
@@ -391,13 +427,19 @@ export default function MachineTypesPage() {
     mutationFn: async ({ originalType, newTypeName }: { originalType: string; newTypeName: string }) => {
       // Check if new name already exists
       const { data: existing } = await supabase
-        .from('machine_section_templates')
+        .from('machine_types')
         .select('id')
-        .eq('machine_type', newTypeName)
+        .eq('name', newTypeName)
         .limit(1);
       if (existing && existing.length > 0) {
         throw new Error(`Ya existe un tipo de equipo con el nombre "${newTypeName}"`);
       }
+      
+      // Create the new machine type first
+      const { error: typeError } = await supabase
+        .from('machine_types')
+        .insert({ name: newTypeName });
+      if (typeError) throw typeError;
       
       // Get all templates for this type
       const { data: templatesData, error: templatesError } = await supabase
@@ -635,27 +677,39 @@ export default function MachineTypesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Machine Types */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-lg">Tipos de Equipo</CardTitle>
+            <Button
+              size="sm"
+              onClick={() => {
+                setMachineTypeToEdit(null);
+                setNewMachineTypeName('');
+                setMachineTypeDialogMode('create');
+                setIsMachineTypeDialogOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Nuevo
+            </Button>
           </CardHeader>
           <CardContent className="space-y-2">
             {machineTypes?.map((type) => (
               <div
-                key={type}
+                key={type.id}
                 className={cn(
                   'flex items-center justify-between p-3 rounded-lg border transition-colors',
-                  selectedType === type ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
+                  selectedType === type.name ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
                 )}
               >
                 <button
                   onClick={() => {
-                    setSelectedType(type);
+                    setSelectedType(type.name);
                     setSelectedTemplateId(null);
                   }}
                   className="flex items-center gap-2 flex-1 text-left"
                 >
                   <Settings2 className="w-4 h-4 text-muted-foreground" />
-                  <span className="font-medium">{type}</span>
+                  <span className="font-medium">{type.name}</span>
                 </button>
                 <div className="flex items-center gap-1">
                   <Button
@@ -664,8 +718,8 @@ export default function MachineTypesPage() {
                     className="h-8 w-8"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setMachineTypeToEdit(type);
-                      setNewMachineTypeName(type);
+                      setMachineTypeToEdit(type.name);
+                      setNewMachineTypeName(type.name);
                       setMachineTypeDialogMode('edit');
                       setIsMachineTypeDialogOpen(true);
                     }}
@@ -679,8 +733,8 @@ export default function MachineTypesPage() {
                     className="h-8 w-8"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setMachineTypeToEdit(type);
-                      setNewMachineTypeName(`${type} (Copia)`);
+                      setMachineTypeToEdit(type.name);
+                      setNewMachineTypeName(`${type.name} (Copia)`);
                       setMachineTypeDialogMode('duplicate');
                       setIsMachineTypeDialogOpen(true);
                     }}
@@ -694,7 +748,7 @@ export default function MachineTypesPage() {
             ))}
             {(!machineTypes || machineTypes.length === 0) && (
               <p className="text-center text-muted-foreground py-4">
-                No hay tipos definidos. Crea una sección para agregar un tipo.
+                No hay tipos definidos.
               </p>
             )}
           </CardContent>
@@ -1097,18 +1151,26 @@ export default function MachineTypesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Machine Type Edit/Duplicate Dialog */}
+      {/* Machine Type Create/Edit/Duplicate Dialog */}
       <Dialog open={isMachineTypeDialogOpen} onOpenChange={setIsMachineTypeDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {machineTypeDialogMode === 'edit' ? 'Editar Tipo de Equipo' : 'Duplicar Tipo de Equipo'}
+              {machineTypeDialogMode === 'create'
+                ? 'Nuevo Tipo de Equipo'
+                : machineTypeDialogMode === 'edit'
+                ? 'Editar Tipo de Equipo'
+                : 'Duplicar Tipo de Equipo'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                {machineTypeDialogMode === 'edit' ? 'Nombre del tipo' : 'Nombre para la copia'}
+                {machineTypeDialogMode === 'create'
+                  ? 'Nombre del nuevo tipo'
+                  : machineTypeDialogMode === 'edit'
+                  ? 'Nombre del tipo'
+                  : 'Nombre para la copia'}
               </label>
               <Input
                 value={newMachineTypeName}
@@ -1118,6 +1180,11 @@ export default function MachineTypesPage() {
               {machineTypeDialogMode === 'duplicate' && (
                 <p className="text-sm text-muted-foreground">
                   Se copiarán todas las secciones y atributos de "{machineTypeToEdit}"
+                </p>
+              )}
+              {machineTypeDialogMode === 'create' && (
+                <p className="text-sm text-muted-foreground">
+                  El tipo se creará sin secciones. Podrás agregarlas después.
                 </p>
               )}
             </div>
@@ -1139,7 +1206,9 @@ export default function MachineTypesPage() {
                     toast({ title: 'Error', description: 'El nombre es requerido', variant: 'destructive' });
                     return;
                   }
-                  if (machineTypeDialogMode === 'edit') {
+                  if (machineTypeDialogMode === 'create') {
+                    createMachineTypeMutation.mutate(newMachineTypeName.trim());
+                  } else if (machineTypeDialogMode === 'edit') {
                     renameMachineTypeMutation.mutate({
                       oldName: machineTypeToEdit!,
                       newName: newMachineTypeName.trim(),
@@ -1151,12 +1220,22 @@ export default function MachineTypesPage() {
                     });
                   }
                 }}
-                disabled={renameMachineTypeMutation.isPending || duplicateMachineTypeMutation.isPending}
+                disabled={
+                  createMachineTypeMutation.isPending ||
+                  renameMachineTypeMutation.isPending ||
+                  duplicateMachineTypeMutation.isPending
+                }
               >
-                {(renameMachineTypeMutation.isPending || duplicateMachineTypeMutation.isPending) && (
+                {(createMachineTypeMutation.isPending ||
+                  renameMachineTypeMutation.isPending ||
+                  duplicateMachineTypeMutation.isPending) && (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 )}
-                {machineTypeDialogMode === 'edit' ? 'Guardar' : 'Duplicar'}
+                {machineTypeDialogMode === 'create'
+                  ? 'Crear'
+                  : machineTypeDialogMode === 'edit'
+                  ? 'Guardar'
+                  : 'Duplicar'}
               </Button>
             </div>
           </div>
