@@ -149,17 +149,16 @@ export default function LinesPage() {
     },
   });
 
-  // Fetch unique machine types from templates
+  // Fetch machine types from dedicated table
   const { data: machineTypes } = useQuery({
     queryKey: ['machine-types-dropdown'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('machine_section_templates')
-        .select('machine_type')
-        .order('machine_type');
+        .from('machine_types')
+        .select('name')
+        .order('name');
       if (error) throw error;
-      const unique = [...new Set(data.map((t) => t.machine_type))];
-      return unique;
+      return data.map((t) => t.name);
     },
   });
 
