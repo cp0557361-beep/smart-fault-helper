@@ -8,12 +8,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight, X, Copy } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Settings2, ChevronRight, X, Copy, GripVertical } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { SequenceChips } from '@/components/ui/SequenceChips';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface TemplateForm {
   machine_type: string;
@@ -53,7 +71,15 @@ export default function MachineTypesPage() {
   const [isMachineTypeDialogOpen, setIsMachineTypeDialogOpen] = useState(false);
   const [machineTypeDialogMode, setMachineTypeDialogMode] = useState<'create' | 'edit' | 'duplicate'>('create');
   const [machineTypeToEdit, setMachineTypeToEdit] = useState<string | null>(null);
+  const [machineTypeToEditId, setMachineTypeToEditId] = useState<string | null>(null);
   const [newMachineTypeName, setNewMachineTypeName] = useState('');
+  const [newMachineTypeSequences, setNewMachineTypeSequences] = useState<string[]>([]);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const templateForm = useForm<TemplateForm>({
     defaultValues: { machine_type: '', section_name: '', description: '', sequence_order: 0 },
@@ -342,7 +368,7 @@ export default function MachineTypesPage() {
 
   // Create new machine type
   const createMachineTypeMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, sequences }: { name: string; sequences: string[] }) => {
       const { data: existing } = await supabase
         .from('machine_types')
         .select('id')
@@ -354,7 +380,7 @@ export default function MachineTypesPage() {
       
       const { data, error } = await supabase
         .from('machine_types')
-        .insert({ name })
+        .insert({ name, sequences })
         .select()
         .single();
       if (error) throw error;
@@ -365,46 +391,50 @@ export default function MachineTypesPage() {
       setSelectedType(data.name);
       setIsMachineTypeDialogOpen(false);
       setNewMachineTypeName('');
+      setNewMachineTypeSequences([]);
       toast({ title: 'Tipo creado', description: `Se creó el tipo "${data.name}".` });
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
-  // Rename machine type
+  // Rename/Update machine type
   const renameMachineTypeMutation = useMutation({
-    mutationFn: async ({ oldName, newName }: { oldName: string; newName: string }) => {
-      if (oldName === newName) return newName;
-      
-      // Check if new name already exists
-      const { data: existing } = await supabase
-        .from('machine_types')
-        .select('id')
-        .eq('name', newName)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        throw new Error(`Ya existe un tipo de equipo con el nombre "${newName}"`);
+    mutationFn: async ({ id, oldName, newName, sequences }: { id: string; oldName: string; newName: string; sequences: string[] }) => {
+      // Check if new name already exists (if name changed)
+      if (oldName !== newName) {
+        const { data: existing } = await supabase
+          .from('machine_types')
+          .select('id')
+          .eq('name', newName)
+          .neq('id', id)
+          .limit(1);
+        if (existing && existing.length > 0) {
+          throw new Error(`Ya existe un tipo de equipo con el nombre "${newName}"`);
+        }
       }
       
       // Update the machine_types table
       const { error: typeError } = await supabase
         .from('machine_types')
-        .update({ name: newName })
-        .eq('name', oldName);
+        .update({ name: newName, sequences })
+        .eq('id', id);
       if (typeError) throw typeError;
       
-      // Update all templates with this machine_type
-      const { error } = await supabase
-        .from('machine_section_templates')
-        .update({ machine_type: newName })
-        .eq('machine_type', oldName);
-      if (error) throw error;
-      
-      // Update all machines with this machine_type
-      const { error: machinesError } = await supabase
-        .from('machines')
-        .update({ machine_type: newName })
-        .eq('machine_type', oldName);
-      if (machinesError) throw machinesError;
+      // Update all templates with this machine_type (if name changed)
+      if (oldName !== newName) {
+        const { error } = await supabase
+          .from('machine_section_templates')
+          .update({ machine_type: newName })
+          .eq('machine_type', oldName);
+        if (error) throw error;
+        
+        // Update all machines with this machine_type
+        const { error: machinesError } = await supabase
+          .from('machines')
+          .update({ machine_type: newName })
+          .eq('machine_type', oldName);
+        if (machinesError) throw machinesError;
+      }
       
       return newName;
     },
@@ -416,8 +446,10 @@ export default function MachineTypesPage() {
       setSelectedType(newName);
       setIsMachineTypeDialogOpen(false);
       setMachineTypeToEdit(null);
+      setMachineTypeToEditId(null);
       setNewMachineTypeName('');
-      toast({ title: 'Tipo renombrado', description: `El tipo de equipo ahora se llama "${newName}".` });
+      setNewMachineTypeSequences([]);
+      toast({ title: 'Tipo actualizado' });
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
@@ -709,7 +741,23 @@ export default function MachineTypesPage() {
                   className="flex items-center gap-2 flex-1 text-left"
                 >
                   <Settings2 className="w-4 h-4 text-muted-foreground" />
-                  <span className="font-medium">{type.name}</span>
+                  <div className="flex flex-col">
+                    <span className="font-medium">{type.name}</span>
+                    {type.sequences && type.sequences.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {type.sequences.slice(0, 3).map((seq: string) => (
+                          <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
+                            {seq}
+                          </Badge>
+                        ))}
+                        {type.sequences.length > 3 && (
+                          <Badge variant="outline" className="text-xs px-1 py-0">
+                            +{type.sequences.length - 3}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </button>
                 <div className="flex items-center gap-1">
                   <Button
@@ -718,8 +766,10 @@ export default function MachineTypesPage() {
                     className="h-8 w-8"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setMachineTypeToEditId(type.id);
                       setMachineTypeToEdit(type.name);
                       setNewMachineTypeName(type.name);
+                      setNewMachineTypeSequences(type.sequences || []);
                       setMachineTypeDialogMode('edit');
                       setIsMachineTypeDialogOpen(true);
                     }}
@@ -735,6 +785,7 @@ export default function MachineTypesPage() {
                       e.stopPropagation();
                       setMachineTypeToEdit(type.name);
                       setNewMachineTypeName(`${type.name} (Copia)`);
+                      setNewMachineTypeSequences([]);
                       setMachineTypeDialogMode('duplicate');
                       setIsMachineTypeDialogOpen(true);
                     }}
@@ -1188,6 +1239,22 @@ export default function MachineTypesPage() {
                 </p>
               )}
             </div>
+            
+            {/* Sequences field - only for create and edit */}
+            {machineTypeDialogMode !== 'duplicate' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Secuencias sugeridas</label>
+                <SequenceChips
+                  value={newMachineTypeSequences}
+                  onChange={setNewMachineTypeSequences}
+                  placeholder="Ej: 50, 50-1, 50-3..."
+                />
+                <p className="text-sm text-muted-foreground">
+                  Las secuencias ayudan a identificar la posición del equipo en la línea SMT
+                </p>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2">
               <Button
                 type="button"
@@ -1195,7 +1262,9 @@ export default function MachineTypesPage() {
                 onClick={() => {
                   setIsMachineTypeDialogOpen(false);
                   setMachineTypeToEdit(null);
+                  setMachineTypeToEditId(null);
                   setNewMachineTypeName('');
+                  setNewMachineTypeSequences([]);
                 }}
               >
                 Cancelar
@@ -1207,11 +1276,16 @@ export default function MachineTypesPage() {
                     return;
                   }
                   if (machineTypeDialogMode === 'create') {
-                    createMachineTypeMutation.mutate(newMachineTypeName.trim());
+                    createMachineTypeMutation.mutate({
+                      name: newMachineTypeName.trim(),
+                      sequences: newMachineTypeSequences,
+                    });
                   } else if (machineTypeDialogMode === 'edit') {
                     renameMachineTypeMutation.mutate({
+                      id: machineTypeToEditId!,
                       oldName: machineTypeToEdit!,
                       newName: newMachineTypeName.trim(),
+                      sequences: newMachineTypeSequences,
                     });
                   } else {
                     duplicateMachineTypeMutation.mutate({

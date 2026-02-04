@@ -288,6 +288,7 @@ export type Database = {
           description: string | null
           id: string
           name: string
+          sequences: string[] | null
           updated_at: string
         }
         Insert: {
@@ -295,6 +296,7 @@ export type Database = {
           description?: string | null
           id?: string
           name: string
+          sequences?: string[] | null
           updated_at?: string
         }
         Update: {
@@ -302,6 +304,7 @@ export type Database = {
           description?: string | null
           id?: string
           name?: string
+          sequences?: string[] | null
           updated_at?: string
         }
         Relationships: []
@@ -316,6 +319,7 @@ export type Database = {
           nameplate_image_url: string | null
           production_line_id: string
           sequence_order: number | null
+          sequences: string[] | null
           serial_number: string | null
           status: Database["public"]["Enums"]["machine_status"] | null
           updated_at: string
@@ -329,6 +333,7 @@ export type Database = {
           nameplate_image_url?: string | null
           production_line_id: string
           sequence_order?: number | null
+          sequences?: string[] | null
           serial_number?: string | null
           status?: Database["public"]["Enums"]["machine_status"] | null
           updated_at?: string
@@ -342,6 +347,7 @@ export type Database = {
           nameplate_image_url?: string | null
           production_line_id?: string
           sequence_order?: number | null
+          sequences?: string[] | null
           serial_number?: string | null
           status?: Database["public"]["Enums"]["machine_status"] | null
           updated_at?: string
