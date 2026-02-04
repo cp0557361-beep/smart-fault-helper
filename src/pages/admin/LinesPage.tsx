@@ -17,6 +17,24 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { MachineSectionsPanel } from '@/components/plant/MachineSectionsPanel';
 import { EditSectionAttributesDialog } from '@/components/plant/EditSectionAttributesDialog';
+import { SequenceChips } from '@/components/ui/SequenceChips';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface LineForm {
   name: string;
@@ -31,7 +49,8 @@ interface MachineForm {
   image_url?: string;
   serial_number?: string;
   nameplate_image_url?: string;
-  [key: string]: string | number | undefined; // For dynamic template attributes
+  sequences?: string[];
+  [key: string]: string | number | string[] | undefined; // For dynamic template attributes
 }
 
 interface TemplateAttribute {
@@ -43,6 +62,39 @@ interface TemplateAttribute {
   is_required: boolean;
   options: any;
   sequence_order: number;
+}
+
+// Sortable machine item component
+function SortableMachineItem({ machine, index, children }: { machine: any; index: number; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: machine.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'rounded-lg border hover:bg-secondary/30 transition-colors',
+        isDragging && 'opacity-50 z-50'
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing p-2 hover:bg-muted rounded-l touch-none"
+        >
+          <GripVertical className="w-4 h-4 text-muted-foreground" />
+        </button>
+        <div className="flex-1">{children}</div>
+      </div>
+    </div>
+  );
 }
 
 export default function LinesPage() {
@@ -58,9 +110,16 @@ export default function LinesPage() {
   const [templateAttributes, setTemplateAttributes] = useState<TemplateAttribute[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [editingAttributesMachine, setEditingAttributesMachine] = useState<{ id: string; name: string } | null>(null);
+  const [machineSequences, setMachineSequences] = useState<string[]>([]);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
-  const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '' } });
+  const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] } });
 
   const watchedMachineType = machineForm.watch('machine_type');
 
@@ -340,7 +399,7 @@ export default function LinesPage() {
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
       // Extract base machine fields
-      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, ...attributeValues } = values;
+      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, sequences, ...attributeValues } = values;
       
       // Create machine
       const { data: newMachine, error } = await supabase.from('machines').insert({
@@ -350,6 +409,7 @@ export default function LinesPage() {
         image_url,
         serial_number,
         nameplate_image_url,
+        sequences: sequences || [],
         production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
@@ -365,13 +425,24 @@ export default function LinesPage() {
       setIsMachineDialogOpen(false);
       machineForm.reset();
       setTemplateAttributes([]);
+      setMachineSequences([]);
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   const updateMachineMutation = useMutation({
-    mutationFn: async ({ id, ...values }: MachineForm & { id: string }) => {
-      const { error } = await supabase.from('machines').update(values).eq('id', id);
+    mutationFn: async ({ id, sequences, ...values }: MachineForm & { id: string }) => {
+      // Filter out template attribute values from the update
+      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url } = values;
+      const { error } = await supabase.from('machines').update({
+        name,
+        machine_type,
+        sequence_order,
+        image_url,
+        serial_number,
+        nameplate_image_url,
+        sequences: sequences || [],
+      }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -380,9 +451,42 @@ export default function LinesPage() {
       setIsMachineDialogOpen(false);
       setEditingMachine(null);
       machineForm.reset();
+      setMachineSequences([]);
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
+
+  // Reorder machines mutation
+  const reorderMachinesMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      const updates = orderedIds.map((id, index) => ({
+        id,
+        sequence_order: index,
+      }));
+      
+      for (const update of updates) {
+        const { error } = await supabase
+          .from('machines')
+          .update({ sequence_order: update.sequence_order })
+          .eq('id', update.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
+    },
+    onError: (error) => toast({ title: 'Error al reordenar', description: error.message, variant: 'destructive' }),
+  });
+
+  const handleMachineDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id && machines) {
+      const oldIndex = machines.findIndex((m) => m.id === active.id);
+      const newIndex = machines.findIndex((m) => m.id === over.id);
+      const newOrder = arrayMove(machines, oldIndex, newIndex);
+      reorderMachinesMutation.mutate(newOrder.map((m) => m.id));
+    }
+  };
 
   const deleteMachineMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -472,6 +576,7 @@ export default function LinesPage() {
     setTemplateAttributes([]);
     if (machine) {
       setEditingMachine(machine);
+      setMachineSequences(machine.sequences || []);
       machineForm.reset({
         name: machine.name,
         machine_type: machine.machine_type || '',
@@ -479,11 +584,13 @@ export default function LinesPage() {
         image_url: machine.image_url || '',
         serial_number: machine.serial_number || '',
         nameplate_image_url: machine.nameplate_image_url || '',
+        sequences: machine.sequences || [],
       });
     } else {
       setEditingMachine(null);
+      setMachineSequences([]);
       const nextOrder = machines ? Math.max(...machines.map((m) => m.sequence_order || 0), 0) + 1 : 1;
-      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder, serial_number: '', nameplate_image_url: '' });
+      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder, serial_number: '', nameplate_image_url: '', sequences: [] });
     }
     setIsMachineDialogOpen(true);
   };
@@ -580,51 +687,71 @@ export default function LinesPage() {
               <Loader2 className="w-6 h-6 animate-spin" />
             </div>
           ) : (
-            <div className="space-y-3">
-              {machines?.map((machine, index) => (
-                <div key={machine.id} className="rounded-lg border hover:bg-secondary/30 transition-colors">
-                  <div className="flex items-center gap-3 p-3">
-                    <span className="w-6 h-6 flex items-center justify-center bg-muted rounded text-xs font-medium">
-                      {index + 1}
-                    </span>
-                    {machine.image_url ? (
-                      <img src={machine.image_url} alt={machine.name} className="w-12 h-12 rounded object-cover" />
-                    ) : (
-                      <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
-                        <Upload className="w-4 h-4 text-muted-foreground" />
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMachineDragEnd}>
+              <SortableContext items={machines?.map((m) => m.id) || []} strategy={verticalListSortingStrategy}>
+                <div className="space-y-3">
+                  {machines?.map((machine, index) => (
+                    <SortableMachineItem key={machine.id} machine={machine} index={index}>
+                      <div className="flex items-center gap-3 p-3">
+                        <span className="w-6 h-6 flex items-center justify-center bg-muted rounded text-xs font-medium">
+                          {index + 1}
+                        </span>
+                        {machine.image_url ? (
+                          <img src={machine.image_url} alt={machine.name} className="w-12 h-12 rounded object-cover" />
+                        ) : (
+                          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
+                            <Upload className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <p className="font-medium">{machine.name}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">{machine.machine_type || 'Sin tipo'}</span>
+                            {machine.sequences && machine.sequences.length > 0 && (
+                              <div className="flex gap-1">
+                                {machine.sequences.slice(0, 2).map((seq: string) => (
+                                  <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
+                                    {seq}
+                                  </Badge>
+                                ))}
+                                {machine.sequences.length > 2 && (
+                                  <Badge variant="outline" className="text-xs px-1 py-0">
+                                    +{machine.sequences.length - 2}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            title="Editar atributos de secciones"
+                            onClick={() => setEditingAttributesMachine({ id: machine.id, name: machine.name })}
+                          >
+                            <Settings2 className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => openMachineDialog(machine)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => { if (confirm('¿Eliminar equipo?')) deleteMachineMutation.mutate(machine.id); }}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
-                    )}
-                    <div className="flex-1">
-                      <p className="font-medium">{machine.name}</p>
-                      <p className="text-sm text-muted-foreground">{machine.machine_type || 'Sin tipo'}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        title="Editar atributos de secciones"
-                        onClick={() => setEditingAttributesMachine({ id: machine.id, name: machine.name })}
-                      >
-                        <Settings2 className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => openMachineDialog(machine)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => { if (confirm('¿Eliminar equipo?')) deleteMachineMutation.mutate(machine.id); }}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  {/* Machine Sections Panel */}
-                  <div className="px-3 pb-3">
-                    <MachineSectionsPanel machineId={machine.id} compact />
-                  </div>
+                      {/* Machine Sections Panel */}
+                      <div className="px-3 pb-3">
+                        <MachineSectionsPanel machineId={machine.id} compact />
+                      </div>
+                    </SortableMachineItem>
+                  ))}
+                  {machines?.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No hay equipos. Agrega uno nuevo.</p>
+                  )}
                 </div>
-              ))}
-              {machines?.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">No hay equipos. Agrega uno nuevo.</p>
-              )}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </CardContent>
       </Card>
@@ -857,6 +984,28 @@ export default function LinesPage() {
                         </FormControl>
                         {uploadingNameplate && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
                       </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Sequences field */}
+                <FormField
+                  control={machineForm.control}
+                  name="sequences"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Secuencias</FormLabel>
+                      <FormControl>
+                        <SequenceChips
+                          value={field.value || []}
+                          onChange={(sequences) => field.onChange(sequences)}
+                          placeholder="Ej: 50, 50-1, 50-3..."
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Identifica la posición del equipo en la línea SMT
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}
