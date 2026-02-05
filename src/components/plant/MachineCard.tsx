@@ -14,12 +14,39 @@ interface MachineCardProps {
   onClick: () => void;
 }
 
-const machineIcons: Record<string, string> = {
-  'Impresora SPI': '🖨️',
-  'Pick & Place': '🤖',
-  'Horno Reflow': '🔥',
-  'Inspección AOI': '👁️',
+// const machineIcons: Record<string, string> = {
+//   'Impresora SPI': '🖨️',
+//   'Pick & Place': '🤖',
+//   'Horno Reflow': '🔥',
+//   'Inspección AOI': '👁️',
 };
+const machineIcons: Record<string, string> = {
+  'Cargador de magazines': '📂',
+  'Cargador de tablilla virgen': '📥',
+  'Laser': '✨',
+  'PCB Cleaner': '🧽',
+  'Shuttle': '🔃',
+  'Suttle despues de horno': '🔃',
+  'DEK 1': '🖨️',
+  'DEK 2': '🖨️',
+  'PARMI': '👁️',
+  'Siplace Sec. 50': '🧩',
+  'Siplace Sec. 50-1': '🧩',
+  'Siplace Sec. 50-2': '🧩',
+  'Siplace Sec. 50-3': '🧩',
+  'Siplace Sec. 50-4': '🧩',
+  'AOI': '🔍',
+  'AOI - Rayos X': '🔍',
+  'Rayos X': '⚛️',
+  'Conveyor de clasificacion SPI': '🔀',
+  'Conveyor de clasificacion AOI': '🔀',
+  'Conveyor': '➡️',
+  'Buffer': '🗄️',
+  'Descargador de magazines': '📤',
+};
+
+
+
 
 export function MachineCard({
   id,
