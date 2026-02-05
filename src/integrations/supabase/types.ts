@@ -288,6 +288,7 @@ export type Database = {
           description: string | null
           id: string
           name: string
+          sequence_order: number | null
           sequences: string[] | null
           updated_at: string
         }
@@ -296,6 +297,7 @@ export type Database = {
           description?: string | null
           id?: string
           name: string
+          sequence_order?: number | null
           sequences?: string[] | null
           updated_at?: string
         }
@@ -304,6 +306,7 @@ export type Database = {
           description?: string | null
           id?: string
           name?: string
+          sequence_order?: number | null
           sequences?: string[] | null
           updated_at?: string
         }

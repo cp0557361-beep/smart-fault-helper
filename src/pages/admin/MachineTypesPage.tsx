@@ -612,7 +612,7 @@ export default function MachineTypesPage() {
       for (let i = 0; i < orderedIds.length; i++) {
         const { error } = await supabase
           .from('machine_types')
-          .update({ sequence_order: i })
+          .update({ sequence_order: i } as any)
           .eq('id', orderedIds[i]);
         if (error) throw error;
       }
