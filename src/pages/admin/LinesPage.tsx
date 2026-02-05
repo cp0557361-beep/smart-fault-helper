@@ -215,7 +215,7 @@ export default function LinesPage() {
       const { data, error } = await supabase
         .from('machine_types')
         .select('name')
-        .order('name');
+       .order('sequence_order');
       if (error) throw error;
       return data.map((t) => t.name);
     },
