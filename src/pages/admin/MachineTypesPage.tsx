@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { SortableItem } from '@/components/ui/SortableItem';
 
 interface TemplateForm {
   machine_type: string;
@@ -99,6 +101,7 @@ export default function MachineTypesPage() {
       const { data, error } = await supabase
         .from('machine_types')
         .select('*')
+        .order('sequence_order', { nullsFirst: false })
         .order('name');
       if (error) throw error;
       return data;
@@ -603,6 +606,88 @@ export default function MachineTypesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Reorder machine types
+  const reorderMachineTypesMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        const { error } = await supabase
+          .from('machine_types')
+          .update({ sequence_order: i })
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['machine-types'] });
+    },
+    onError: (error) => toast({ title: 'Error al reordenar', description: error.message, variant: 'destructive' }),
+  });
+
+  // Reorder templates (sections)
+  const reorderTemplatesMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        const { error } = await supabase
+          .from('machine_section_templates')
+          .update({ sequence_order: i })
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['section-templates'] });
+    },
+    onError: (error) => toast({ title: 'Error al reordenar', description: error.message, variant: 'destructive' }),
+  });
+
+  // Reorder attributes
+  const reorderAttributesMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      for (let i = 0; i < orderedIds.length; i++) {
+        const { error } = await supabase
+          .from('section_attribute_definitions')
+          .update({ sequence_order: i })
+          .eq('id', orderedIds[i]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['section-attributes', selectedTemplateId] });
+    },
+    onError: (error) => toast({ title: 'Error al reordenar', description: error.message, variant: 'destructive' }),
+  });
+
+  // DnD handlers
+  const handleMachineTypeDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !machineTypes) return;
+
+    const oldIndex = machineTypes.findIndex((t) => t.id === active.id);
+    const newIndex = machineTypes.findIndex((t) => t.id === over.id);
+    const newOrder = arrayMove(machineTypes, oldIndex, newIndex);
+    reorderMachineTypesMutation.mutate(newOrder.map((t) => t.id));
+  };
+
+  const handleTemplateDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !templates) return;
+
+    const oldIndex = templates.findIndex((t) => t.id === active.id);
+    const newIndex = templates.findIndex((t) => t.id === over.id);
+    const newOrder = arrayMove(templates, oldIndex, newIndex);
+    reorderTemplatesMutation.mutate(newOrder.map((t) => t.id));
+  };
+
+  const handleAttributeDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !attributes) return;
+
+    const oldIndex = attributes.findIndex((a) => a.id === active.id);
+    const newIndex = attributes.findIndex((a) => a.id === over.id);
+    const newOrder = arrayMove(attributes, oldIndex, newIndex);
+    reorderAttributesMutation.mutate(newOrder.map((a) => a.id));
+  };
+
   const openTemplateDialog = (template?: any) => {
     if (template) {
       setEditingTemplate(template);
@@ -725,78 +810,83 @@ export default function MachineTypesPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {machineTypes?.map((type) => (
-              <div
-                key={type.id}
-                className={cn(
-                  'flex items-center justify-between p-3 rounded-lg border transition-colors',
-                  selectedType === type.name ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
-                )}
-              >
-                <button
-                  onClick={() => {
-                    setSelectedType(type.name);
-                    setSelectedTemplateId(null);
-                  }}
-                  className="flex items-center gap-2 flex-1 text-left"
-                >
-                  <Settings2 className="w-4 h-4 text-muted-foreground" />
-                  <div className="flex flex-col">
-                    <span className="font-medium">{type.name}</span>
-                    {type.sequences && type.sequences.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {type.sequences.slice(0, 3).map((seq: string) => (
-                          <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
-                            {seq}
-                          </Badge>
-                        ))}
-                        {type.sequences.length > 3 && (
-                          <Badge variant="outline" className="text-xs px-1 py-0">
-                            +{type.sequences.length - 3}
-                          </Badge>
-                        )}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMachineTypeDragEnd}>
+              <SortableContext items={machineTypes?.map((t) => t.id) || []} strategy={verticalListSortingStrategy}>
+                {machineTypes?.map((type) => (
+                  <SortableItem key={type.id} id={type.id}>
+                    <div
+                      className={cn(
+                        'flex items-center justify-between p-3 rounded-lg border transition-colors',
+                        selectedType === type.name ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
+                      )}
+                    >
+                      <button
+                        onClick={() => {
+                          setSelectedType(type.name);
+                          setSelectedTemplateId(null);
+                        }}
+                        className="flex items-center gap-2 flex-1 text-left"
+                      >
+                        <Settings2 className="w-4 h-4 text-muted-foreground" />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{type.name}</span>
+                          {type.sequences && type.sequences.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {type.sequences.slice(0, 3).map((seq: string) => (
+                                <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
+                                  {seq}
+                                </Badge>
+                              ))}
+                              {type.sequences.length > 3 && (
+                                <Badge variant="outline" className="text-xs px-1 py-0">
+                                  +{type.sequences.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMachineTypeToEditId(type.id);
+                            setMachineTypeToEdit(type.name);
+                            setNewMachineTypeName(type.name);
+                            setNewMachineTypeSequences(type.sequences || []);
+                            setMachineTypeDialogMode('edit');
+                            setIsMachineTypeDialogOpen(true);
+                          }}
+                          title="Editar tipo de equipo"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMachineTypeToEdit(type.name);
+                            setNewMachineTypeName(`${type.name} (Copia)`);
+                            setNewMachineTypeSequences([]);
+                            setMachineTypeDialogMode('duplicate');
+                            setIsMachineTypeDialogOpen(true);
+                          }}
+                          title="Duplicar tipo de equipo"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
                       </div>
-                    )}
-                  </div>
-                </button>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMachineTypeToEditId(type.id);
-                      setMachineTypeToEdit(type.name);
-                      setNewMachineTypeName(type.name);
-                      setNewMachineTypeSequences(type.sequences || []);
-                      setMachineTypeDialogMode('edit');
-                      setIsMachineTypeDialogOpen(true);
-                    }}
-                    title="Editar tipo de equipo"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMachineTypeToEdit(type.name);
-                      setNewMachineTypeName(`${type.name} (Copia)`);
-                      setNewMachineTypeSequences([]);
-                      setMachineTypeDialogMode('duplicate');
-                      setIsMachineTypeDialogOpen(true);
-                    }}
-                    title="Duplicar tipo de equipo"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </div>
-            ))}
+                    </div>
+                  </SortableItem>
+                ))}
+              </SortableContext>
+            </DndContext>
             {(!machineTypes || machineTypes.length === 0) && (
               <p className="text-center text-muted-foreground py-4">
                 No hay tipos definidos.
@@ -822,64 +912,69 @@ export default function MachineTypesPage() {
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
             ) : (
-              <div className="space-y-2">
-                {templates?.map((template) => (
-                  <div
-                    key={template.id}
-                    className={cn(
-                      'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors',
-                      selectedTemplateId === template.id ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
-                    )}
-                    onClick={() => setSelectedTemplateId(template.id)}
-                  >
-                    <div>
-                      <p className="font-medium">{template.section_name}</p>
-                      {template.description && (
-                        <p className="text-sm text-muted-foreground">{template.description}</p>
-                      )}
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          duplicateSectionMutation.mutate(template);
-                        }}
-                        disabled={duplicateSectionMutation.isPending}
-                        title="Duplicar sección"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openTemplateDialog(template);
-                        }}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('¿Eliminar sección?')) deleteTemplateMutation.mutate(template.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTemplateDragEnd}>
+                <SortableContext items={templates?.map((t) => t.id) || []} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2">
+                    {templates?.map((template) => (
+                      <SortableItem key={template.id} id={template.id}>
+                        <div
+                          className={cn(
+                            'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors',
+                            selectedTemplateId === template.id ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
+                          )}
+                          onClick={() => setSelectedTemplateId(template.id)}
+                        >
+                          <div>
+                            <p className="font-medium">{template.section_name}</p>
+                            {template.description && (
+                              <p className="text-sm text-muted-foreground">{template.description}</p>
+                            )}
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                duplicateSectionMutation.mutate(template);
+                              }}
+                              disabled={duplicateSectionMutation.isPending}
+                              title="Duplicar sección"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openTemplateDialog(template);
+                              }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm('¿Eliminar sección?')) deleteTemplateMutation.mutate(template.id);
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </SortableItem>
+                    ))}
                   </div>
-                ))}
-                {templates?.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">
-                    No hay secciones para este tipo
-                  </p>
-                )}
-              </div>
+                </SortableContext>
+              </DndContext>
+            )}
+            {templates?.length === 0 && !templatesLoading && selectedType && (
+              <p className="text-center text-muted-foreground py-4">
+                No hay secciones para este tipo
+              </p>
             )}
           </CardContent>
         </Card>
@@ -907,63 +1002,69 @@ export default function MachineTypesPage() {
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
             ) : (
-              <div className="space-y-2">
-                {attributes?.map((attr) => {
-                  const options = Array.isArray(attr.options) ? attr.options : [];
-                  return (
-                    <div key={attr.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-secondary">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{attr.attribute_name}</p>
-                          {attr.is_required && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">
-                              Requerido
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span>
-                            {ATTRIBUTE_TYPES.find((t) => t.value === attr.attribute_type)?.label || attr.attribute_type}
-                          </span>
-                          {attr.attribute_type === 'select' && options.length > 0 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                              {options.length} opciones
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => duplicateAttributeMutation.mutate(attr)}
-                          disabled={duplicateAttributeMutation.isPending}
-                          title="Duplicar atributo"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openAttributeDialog(attr)}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            if (confirm('¿Eliminar atributo?')) deleteAttributeMutation.mutate(attr.id);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {attributes?.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">
-                    No hay atributos definidos
-                  </p>
-                )}
-              </div>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleAttributeDragEnd}>
+                <SortableContext items={attributes?.map((a) => a.id) || []} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2">
+                    {attributes?.map((attr) => {
+                      const options = Array.isArray(attr.options) ? attr.options : [];
+                      return (
+                        <SortableItem key={attr.id} id={attr.id}>
+                          <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-secondary">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{attr.attribute_name}</p>
+                                {attr.is_required && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">
+                                    Requerido
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <span>
+                                  {ATTRIBUTE_TYPES.find((t) => t.value === attr.attribute_type)?.label || attr.attribute_type}
+                                </span>
+                                {attr.attribute_type === 'select' && options.length > 0 && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                                    {options.length} opciones
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => duplicateAttributeMutation.mutate(attr)}
+                                disabled={duplicateAttributeMutation.isPending}
+                                title="Duplicar atributo"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => openAttributeDialog(attr)}>
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm('¿Eliminar atributo?')) deleteAttributeMutation.mutate(attr.id);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </SortableItem>
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+            {attributes?.length === 0 && !attributesLoading && selectedTemplateId && (
+              <p className="text-center text-muted-foreground py-4">
+                No hay atributos definidos
+              </p>
             )}
           </CardContent>
         </Card>
