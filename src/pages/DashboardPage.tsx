@@ -33,6 +33,7 @@ interface Machine {
   status: MachineStatus;
   sequence_order: number;
   production_line_id: string;
+  sequences?: string[];
 }
 
 interface AreaStats {
