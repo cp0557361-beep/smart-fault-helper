@@ -17,7 +17,6 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { MachineSectionsPanel } from '@/components/plant/MachineSectionsPanel';
 import { EditSectionAttributesDialog } from '@/components/plant/EditSectionAttributesDialog';
-import { SequenceChips } from '@/components/ui/SequenceChips';
 import {
   DndContext,
   closestCenter,
@@ -223,15 +222,16 @@ export default function LinesPage() {
 
   const machineTypes = machineTypesData?.map((t) => t.name);
 
-  // Auto-populate sequences when machine type changes
+  // Auto-populate sequences when machine type changes (always from template)
   useEffect(() => {
-    if (!watchedMachineType || editingMachine) return;
+    if (!watchedMachineType) {
+      setMachineSequences([]);
+      return;
+    }
     
     const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
-    if (selectedType?.sequences && selectedType.sequences.length > 0) {
-      setMachineSequences(selectedType.sequences);
-    }
-  }, [watchedMachineType, machineTypesData, editingMachine]);
+    setMachineSequences(selectedType?.sequences || []);
+  }, [watchedMachineType, machineTypesData]);
 
   const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
@@ -413,7 +413,7 @@ export default function LinesPage() {
       // Extract base machine fields
       const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, sequences, ...attributeValues } = values;
       
-      // Create machine
+      // Create machine with sequences from template (machineSequences state)
       const { data: newMachine, error } = await supabase.from('machines').insert({
         name,
         machine_type,
@@ -421,7 +421,7 @@ export default function LinesPage() {
         image_url,
         serial_number,
         nameplate_image_url,
-        sequences: sequences || [],
+        sequences: machineSequences,
         production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
@@ -453,7 +453,7 @@ export default function LinesPage() {
         image_url,
         serial_number,
         nameplate_image_url,
-        sequences: sequences || [],
+        sequences: machineSequences,
       }).eq('id', id);
       if (error) throw error;
     },
@@ -1001,27 +1001,22 @@ export default function LinesPage() {
                   )}
                 />
 
-                {/* Sequences field */}
-                <FormField
-                  control={machineForm.control}
-                  name="sequences"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Secuencias</FormLabel>
-                      <FormControl>
-                        <SequenceChips
-                          value={field.value || []}
-                          onChange={(sequences) => field.onChange(sequences)}
-                          placeholder="Ej: 50, 50-1, 50-3..."
-                        />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        Identifica la posición del equipo en la línea SMT
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Sequences display (read-only, from template) */}
+                {machineSequences.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Secuencias (desde plantilla)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {machineSequences.map((seq) => (
+                        <Badge key={seq} variant="secondary">
+                          {seq}
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Las secuencias se definen en la plantilla del tipo de equipo
+                    </p>
+                  </div>
+                )}
 
                 {/* Dynamic Template Attributes */}
                 {loadingAttributes && (
