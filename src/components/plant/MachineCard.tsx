@@ -19,7 +19,7 @@ interface MachineCardProps {
 //   'Pick & Place': '🤖',
 //   'Horno Reflow': '🔥',
 //   'Inspección AOI': '👁️',
-};
+// };
 const machineIcons: Record<string, string> = {
   'Cargador de magazines': '📂',
   'Cargador de tablilla virgen': '📥',
