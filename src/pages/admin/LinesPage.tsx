@@ -18,14 +18,30 @@ import { Badge } from '@/components/ui/badge';
 import { MachineSectionsPanel } from '@/components/plant/MachineSectionsPanel';
 import { EditSectionAttributesDialog } from '@/components/plant/EditSectionAttributesDialog';
 import { SequenceChips } from '@/components/ui/SequenceChips';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
 interface LineForm {
   name: string;
   description: string;
   area_id: string;
 }
+
 interface MachineForm {
   name: string;
   machine_type: string;
@@ -36,6 +52,7 @@ interface MachineForm {
   sequences?: string[];
   [key: string]: string | number | string[] | undefined; // For dynamic template attributes
 }
+
 interface TemplateAttribute {
   id: string;
   template_id: string;
@@ -48,38 +65,38 @@ interface TemplateAttribute {
 }
 
 // Sortable machine item component
-function SortableMachineItem({
-  machine,
-  index,
-  children
-}: {
-  machine: any;
-  index: number;
-  children: React.ReactNode;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging
-  } = useSortable({
-    id: machine.id
-  });
+function SortableMachineItem({ machine, index, children }: { machine: any; index: number; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: machine.id });
+
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition
+    transition,
   };
-  return <div ref={setNodeRef} style={style} className={cn('rounded-lg border hover:bg-secondary/30 transition-colors', isDragging && 'opacity-50 z-50')}>
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'rounded-lg border hover:bg-secondary/30 transition-colors',
+        isDragging && 'opacity-50 z-50'
+      )}
+    >
       <div className="flex items-center gap-2">
-        <button type="button" {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-2 hover:bg-muted rounded-l touch-none">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing p-2 hover:bg-muted rounded-l touch-none"
+        >
           <GripVertical className="w-4 h-4 text-muted-foreground" />
         </button>
         <div className="flex-1">{children}</div>
       </div>
-    </div>;
+    </div>
+  );
 }
+
 export default function LinesPage() {
   const queryClient = useQueryClient();
   const [selectedAreaId, setSelectedAreaId] = useState<string>('');
@@ -92,33 +109,18 @@ export default function LinesPage() {
   const [uploadingNameplate, setUploadingNameplate] = useState(false);
   const [templateAttributes, setTemplateAttributes] = useState<TemplateAttribute[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
-  const [editingAttributesMachine, setEditingAttributesMachine] = useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  const [editingAttributesMachine, setEditingAttributesMachine] = useState<{ id: string; name: string } | null>(null);
   const [machineSequences, setMachineSequences] = useState<string[]>([]);
 
   // DnD sensors
-  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, {
-    coordinateGetter: sortableKeyboardCoordinates
-  }));
-  const lineForm = useForm<LineForm>({
-    defaultValues: {
-      name: '',
-      description: '',
-      area_id: ''
-    }
-  });
-  const machineForm = useForm<MachineForm>({
-    defaultValues: {
-      name: '',
-      machine_type: '',
-      sequence_order: 0,
-      serial_number: '',
-      nameplate_image_url: '',
-      sequences: []
-    }
-  });
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
+  const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] } });
+
   const watchedMachineType = machineForm.watch('machine_type');
 
   // Fetch template attributes when machine type changes
@@ -128,13 +130,16 @@ export default function LinesPage() {
         setTemplateAttributes([]);
         return;
       }
+
       setLoadingAttributes(true);
       try {
         // Get all templates for this machine type
-        const {
-          data: templates,
-          error: templatesError
-        } = await supabase.from('machine_section_templates').select('id, section_name, sequence_order').eq('machine_type', watchedMachineType).order('sequence_order');
+        const { data: templates, error: templatesError } = await supabase
+          .from('machine_section_templates')
+          .select('id, section_name, sequence_order')
+          .eq('machine_type', watchedMachineType)
+          .order('sequence_order');
+
         if (templatesError) throw templatesError;
         if (!templates || templates.length === 0) {
           setTemplateAttributes([]);
@@ -143,10 +148,12 @@ export default function LinesPage() {
 
         // Get all attribute definitions for these templates
         const templateIds = templates.map(t => t.id);
-        const {
-          data: attributes,
-          error: attrError
-        } = await supabase.from('section_attribute_definitions').select('*').in('template_id', templateIds).order('sequence_order');
+        const { data: attributes, error: attrError } = await supabase
+          .from('section_attribute_definitions')
+          .select('*')
+          .in('template_id', templateIds)
+          .order('sequence_order');
+
         if (attrError) throw attrError;
 
         // Map attributes with section names
@@ -160,9 +167,10 @@ export default function LinesPage() {
             attribute_type: attr.attribute_type,
             is_required: attr.is_required || false,
             options: attr.options,
-            sequence_order: attr.sequence_order || 0
+            sequence_order: attr.sequence_order || 0,
           };
         });
+
         setTemplateAttributes(mappedAttributes);
       } catch (error) {
         console.error('Error fetching template attributes:', error);
@@ -171,78 +179,71 @@ export default function LinesPage() {
         setLoadingAttributes(false);
       }
     };
+
     fetchTemplateAttributes();
   }, [watchedMachineType]);
 
   // Check if line name already exists in the same area
   const checkDuplicateLineName = async (name: string, areaId: string, excludeId?: string): Promise<boolean> => {
-    let query = supabase.from('production_lines').select('id').eq('area_id', areaId).ilike('name', name);
+    let query = supabase
+      .from('production_lines')
+      .select('id')
+      .eq('area_id', areaId)
+      .ilike('name', name);
+    
     if (excludeId) {
       query = query.neq('id', excludeId);
     }
-    const {
-      data
-    } = await query;
+    
+    const { data } = await query;
     return (data?.length || 0) > 0;
   };
-  const {
-    data: areas
-  } = useQuery({
+
+  const { data: areas } = useQuery({
     queryKey: ['areas'],
     queryFn: async () => {
-      const {
-        data,
-        error
-      } = await supabase.from('areas').select('*').order('name');
+      const { data, error } = await supabase.from('areas').select('*').order('name');
       if (error) throw error;
       return data;
-    }
+    },
   });
 
   // Fetch machine types from dedicated table
-  const {
-    data: machineTypes
-  } = useQuery({
+  const { data: machineTypes } = useQuery({
     queryKey: ['machine-types-dropdown'],
     queryFn: async () => {
-      const {
-        data,
-        error
-      } = await supabase.from('machine_types').select('name').order('sequence_order');
+      const { data, error } = await supabase
+        .from('machine_types')
+        .select('name')
+       .order('sequence_order');
       if (error) throw error;
-      return data.map(t => t.name);
-    }
+      return data.map((t) => t.name);
+    },
   });
-  const {
-    data: lines,
-    isLoading: linesLoading
-  } = useQuery({
+
+  const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
     queryFn: async () => {
       let query = supabase.from('production_lines').select('*, machines(count)').order('sequence_order');
       if (selectedAreaId) query = query.eq('area_id', selectedAreaId);
-      const {
-        data,
-        error
-      } = await query;
+      const { data, error } = await query;
       if (error) throw error;
       return data;
-    }
+    },
   });
-  const {
-    data: machines,
-    isLoading: machinesLoading
-  } = useQuery({
+
+  const { data: machines, isLoading: machinesLoading } = useQuery({
     queryKey: ['admin-machines', selectedLineId],
     enabled: !!selectedLineId,
     queryFn: async () => {
-      const {
-        data,
-        error
-      } = await supabase.from('machines').select('*').eq('production_line_id', selectedLineId).order('sequence_order');
+      const { data, error } = await supabase
+        .from('machines')
+        .select('*')
+        .eq('production_line_id', selectedLineId)
+        .order('sequence_order');
       if (error) throw error;
       return data;
-    }
+    },
   });
 
   // Line mutations
@@ -253,169 +254,131 @@ export default function LinesPage() {
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
       }
-      const {
-        error
-      } = await supabase.from('production_lines').insert(values);
+      const { error } = await supabase.from('production_lines').insert(values);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-lines']
-      });
-      toast({
-        title: 'Línea creada'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
+      toast({ title: 'Línea creada' });
       setIsLineDialogOpen(false);
       lineForm.reset();
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
+
   const updateLineMutation = useMutation({
-    mutationFn: async ({
-      id,
-      ...values
-    }: LineForm & {
-      id: string;
-    }) => {
+    mutationFn: async ({ id, ...values }: LineForm & { id: string }) => {
       // Check for duplicate name (excluding current line)
       const isDuplicate = await checkDuplicateLineName(values.name, values.area_id, id);
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
       }
-      const {
-        error
-      } = await supabase.from('production_lines').update(values).eq('id', id);
+      const { error } = await supabase.from('production_lines').update(values).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-lines']
-      });
-      toast({
-        title: 'Línea actualizada'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
+      toast({ title: 'Línea actualizada' });
       setIsLineDialogOpen(false);
       setEditingLine(null);
       lineForm.reset();
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
+
   const deleteLineMutation = useMutation({
     mutationFn: async (id: string) => {
-      const {
-        error
-      } = await supabase.from('production_lines').delete().eq('id', id);
+      const { error } = await supabase.from('production_lines').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-lines']
-      });
-      toast({
-        title: 'Línea eliminada'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
+      toast({ title: 'Línea eliminada' });
       if (selectedLineId) setSelectedLineId(null);
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
+
   const duplicateLineMutation = useMutation({
     mutationFn: async (line: any) => {
       // Create new line
-      const {
-        data: newLine,
-        error: lineError
-      } = await supabase.from('production_lines').insert({
-        name: `${line.name} (copia)`,
-        description: line.description,
-        area_id: line.area_id,
-        sequence_order: (line.sequence_order || 0) + 1
-      }).select().single();
+      const { data: newLine, error: lineError } = await supabase
+        .from('production_lines')
+        .insert({
+          name: `${line.name} (copia)`,
+          description: line.description,
+          area_id: line.area_id,
+          sequence_order: (line.sequence_order || 0) + 1,
+        })
+        .select()
+        .single();
       if (lineError) throw lineError;
 
       // Copy machines
-      const {
-        data: lineMachines,
-        error: machinesError
-      } = await supabase.from('machines').select('*').eq('production_line_id', line.id);
+      const { data: lineMachines, error: machinesError } = await supabase
+        .from('machines')
+        .select('*')
+        .eq('production_line_id', line.id);
       if (machinesError) throw machinesError;
+
       if (lineMachines && lineMachines.length > 0) {
-        const newMachines = lineMachines.map(m => ({
+        const newMachines = lineMachines.map((m) => ({
           name: m.name,
           machine_type: m.machine_type,
           production_line_id: newLine.id,
           sequence_order: m.sequence_order,
           image_url: m.image_url,
           serial_number: m.serial_number,
-          nameplate_image_url: m.nameplate_image_url
+          nameplate_image_url: m.nameplate_image_url,
         }));
-        const {
-          error: insertError
-        } = await supabase.from('machines').insert(newMachines);
+        const { error: insertError } = await supabase.from('machines').insert(newMachines);
         if (insertError) throw insertError;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-lines']
-      });
-      toast({
-        title: 'Línea duplicada',
-        description: 'La línea y sus equipos han sido copiados.'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
+      toast({ title: 'Línea duplicada', description: 'La línea y sus equipos han sido copiados.' });
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   // Apply template sections and attributes to a machine
   const applyTemplateToMachine = async (machineId: string, machineType: string, attributeValues: Record<string, any>) => {
     // Fetch templates for this machine type
-    const {
-      data: templates,
-      error: templatesError
-    } = await supabase.from('machine_section_templates').select('*').eq('machine_type', machineType).order('sequence_order');
+    const { data: templates, error: templatesError } = await supabase
+      .from('machine_section_templates')
+      .select('*')
+      .eq('machine_type', machineType)
+      .order('sequence_order');
     if (templatesError) throw templatesError;
     if (!templates || templates.length === 0) return;
 
     // Create sections for each template
     for (const template of templates) {
-      const {
-        data: newSection,
-        error: sectionError
-      } = await supabase.from('machine_sections').insert({
-        machine_id: machineId,
-        template_id: template.id,
-        name: template.section_name,
-        description: template.description,
-        sequence_order: template.sequence_order
-      }).select().single();
+      const { data: newSection, error: sectionError } = await supabase
+        .from('machine_sections')
+        .insert({
+          machine_id: machineId,
+          template_id: template.id,
+          name: template.section_name,
+          description: template.description,
+          sequence_order: template.sequence_order,
+        })
+        .select()
+        .single();
       if (sectionError) throw sectionError;
 
       // Fetch attribute definitions for this template
-      const {
-        data: attrDefs,
-        error: attrError
-      } = await supabase.from('section_attribute_definitions').select('*').eq('template_id', template.id).order('sequence_order');
+      const { data: attrDefs, error: attrError } = await supabase
+        .from('section_attribute_definitions')
+        .select('*')
+        .eq('template_id', template.id)
+        .order('sequence_order');
       if (attrError) throw attrError;
 
       // Create attribute values for each definition with user-provided values
       if (attrDefs && attrDefs.length > 0) {
-        const attrValuesData = attrDefs.map(def => {
+        const attrValuesData = attrDefs.map((def) => {
           // Generate key to match form field: attr_{templateId}_{attributeId}
           const fieldKey = `attr_${template.id}_${def.id}`;
           const providedValue = attributeValues[fieldKey];
@@ -423,12 +386,10 @@ export default function LinesPage() {
             section_id: newSection.id,
             attribute_definition_id: def.id,
             attribute_name: def.attribute_name,
-            attribute_value: providedValue || null
+            attribute_value: providedValue || null,
           };
         });
-        const {
-          error: insertError
-        } = await supabase.from('section_attribute_values').insert(attrValuesData);
+        const { error: insertError } = await supabase.from('section_attribute_values').insert(attrValuesData);
         if (insertError) throw insertError;
       }
     }
@@ -438,22 +399,10 @@ export default function LinesPage() {
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
       // Extract base machine fields
-      const {
-        name,
-        machine_type,
-        sequence_order,
-        image_url,
-        serial_number,
-        nameplate_image_url,
-        sequences,
-        ...attributeValues
-      } = values;
-
+      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, sequences, ...attributeValues } = values;
+      
       // Create machine
-      const {
-        data: newMachine,
-        error
-      } = await supabase.from('machines').insert({
+      const { data: newMachine, error } = await supabase.from('machines').insert({
         name,
         machine_type,
         sequence_order,
@@ -461,7 +410,7 @@ export default function LinesPage() {
         serial_number,
         nameplate_image_url,
         sequences: sequences || [],
-        production_line_id: selectedLineId
+        production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
 
@@ -471,71 +420,40 @@ export default function LinesPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-machines', selectedLineId]
-      });
-      toast({
-        title: 'Equipo creado',
-        description: 'Secciones y atributos aplicados desde la plantilla.'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
+      toast({ title: 'Equipo creado', description: 'Secciones y atributos aplicados desde la plantilla.' });
       setIsMachineDialogOpen(false);
       machineForm.reset();
       setTemplateAttributes([]);
       setMachineSequences([]);
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
+
   const updateMachineMutation = useMutation({
-    mutationFn: async ({
-      id,
-      sequences,
-      ...values
-    }: MachineForm & {
-      id: string;
-    }) => {
+    mutationFn: async ({ id, sequences, ...values }: MachineForm & { id: string }) => {
       // Filter out template attribute values from the update
-      const {
-        name,
-        machine_type,
-        sequence_order,
-        image_url,
-        serial_number,
-        nameplate_image_url
-      } = values;
-      const {
-        error
-      } = await supabase.from('machines').update({
+      const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url } = values;
+      const { error } = await supabase.from('machines').update({
         name,
         machine_type,
         sequence_order,
         image_url,
         serial_number,
         nameplate_image_url,
-        sequences: sequences || []
+        sequences: sequences || [],
       }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-machines', selectedLineId]
-      });
-      toast({
-        title: 'Equipo actualizado'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
+      toast({ title: 'Equipo actualizado' });
       setIsMachineDialogOpen(false);
       setEditingMachine(null);
       machineForm.reset();
       setMachineSequences([]);
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   // Reorder machines mutation
@@ -543,60 +461,43 @@ export default function LinesPage() {
     mutationFn: async (orderedIds: string[]) => {
       const updates = orderedIds.map((id, index) => ({
         id,
-        sequence_order: index
+        sequence_order: index,
       }));
+      
       for (const update of updates) {
-        const {
-          error
-        } = await supabase.from('machines').update({
-          sequence_order: update.sequence_order
-        }).eq('id', update.id);
+        const { error } = await supabase
+          .from('machines')
+          .update({ sequence_order: update.sequence_order })
+          .eq('id', update.id);
         if (error) throw error;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-machines', selectedLineId]
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
     },
-    onError: error => toast({
-      title: 'Error al reordenar',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error al reordenar', description: error.message, variant: 'destructive' }),
   });
+
   const handleMachineDragEnd = (event: DragEndEvent) => {
-    const {
-      active,
-      over
-    } = event;
+    const { active, over } = event;
     if (over && active.id !== over.id && machines) {
-      const oldIndex = machines.findIndex(m => m.id === active.id);
-      const newIndex = machines.findIndex(m => m.id === over.id);
+      const oldIndex = machines.findIndex((m) => m.id === active.id);
+      const newIndex = machines.findIndex((m) => m.id === over.id);
       const newOrder = arrayMove(machines, oldIndex, newIndex);
-      reorderMachinesMutation.mutate(newOrder.map(m => m.id));
+      reorderMachinesMutation.mutate(newOrder.map((m) => m.id));
     }
   };
+
   const deleteMachineMutation = useMutation({
     mutationFn: async (id: string) => {
-      const {
-        error
-      } = await supabase.from('machines').delete().eq('id', id);
+      const { error } = await supabase.from('machines').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['admin-machines', selectedLineId]
-      });
-      toast({
-        title: 'Equipo eliminado'
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
+      toast({ title: 'Equipo eliminado' });
     },
-    onError: error => toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive'
-    })
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   // Image upload
@@ -608,82 +509,69 @@ export default function LinesPage() {
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
       const folder = field === 'image_url' ? 'machines' : 'nameplates';
       const filePath = `${folder}/${fileName}`;
-      const {
-        error: uploadError
-      } = await supabase.storage.from('evidence-photos').upload(filePath, file);
+
+      const { error: uploadError } = await supabase.storage
+        .from('evidence-photos')
+        .upload(filePath, file);
+
       if (uploadError) throw uploadError;
-      const {
-        data
-      } = supabase.storage.from('evidence-photos').getPublicUrl(filePath);
+
+      const { data } = supabase.storage.from('evidence-photos').getPublicUrl(filePath);
       machineForm.setValue(field, data.publicUrl);
-      toast({
-        title: 'Imagen subida'
-      });
+      toast({ title: 'Imagen subida' });
     } catch (error: any) {
-      toast({
-        title: 'Error al subir imagen',
-        description: error.message,
-        variant: 'destructive'
-      });
+      toast({ title: 'Error al subir imagen', description: error.message, variant: 'destructive' });
     } finally {
       setUploading(false);
     }
   };
+
   const onLineSubmit = (values: LineForm) => {
     if (editingLine) {
-      updateLineMutation.mutate({
-        id: editingLine.id,
-        ...values
-      });
+      updateLineMutation.mutate({ id: editingLine.id, ...values });
     } else {
       createLineMutation.mutate(values);
     }
   };
+
   const onMachineSubmit = (values: MachineForm) => {
     // Validate required template attributes
     const missingRequired: string[] = [];
     templateAttributes.filter(attr => attr.is_required).forEach(attr => {
       const fieldKey = `attr_${attr.template_id}_${attr.id}`;
       const value = values[fieldKey];
-      if (!value || typeof value === 'string' && value.trim() === '') {
+      if (!value || (typeof value === 'string' && value.trim() === '')) {
         missingRequired.push(`${attr.section_name} → ${attr.attribute_name}`);
       }
     });
+
     if (missingRequired.length > 0) {
       toast({
         title: 'Campos requeridos faltantes',
         description: `Completa: ${missingRequired.join(', ')}`,
-        variant: 'destructive'
+        variant: 'destructive',
       });
       return;
     }
+
     if (editingMachine) {
-      updateMachineMutation.mutate({
-        id: editingMachine.id,
-        ...values
-      });
+      updateMachineMutation.mutate({ id: editingMachine.id, ...values });
     } else {
       createMachineMutation.mutate(values);
     }
   };
+
   const openLineDialog = (line?: any) => {
     if (line) {
       setEditingLine(line);
-      lineForm.reset({
-        name: line.name,
-        description: line.description || '',
-        area_id: line.area_id
-      });
+      lineForm.reset({ name: line.name, description: line.description || '', area_id: line.area_id });
     } else {
       setEditingLine(null);
-      lineForm.reset({
-        name: '',
-        description: '',
-        area_id: selectedAreaId || ''
-      });
+      lineForm.reset({ name: '', description: '', area_id: selectedAreaId || '' });
     }
     setIsLineDialogOpen(true);
   };
+
   const openMachineDialog = (machine?: any) => {
     setTemplateAttributes([]);
     if (machine) {
@@ -696,24 +584,19 @@ export default function LinesPage() {
         image_url: machine.image_url || '',
         serial_number: machine.serial_number || '',
         nameplate_image_url: machine.nameplate_image_url || '',
-        sequences: machine.sequences || []
+        sequences: machine.sequences || [],
       });
     } else {
       setEditingMachine(null);
       setMachineSequences([]);
-      const nextOrder = machines ? Math.max(...machines.map(m => m.sequence_order || 0), 0) + 1 : 1;
-      machineForm.reset({
-        name: '',
-        machine_type: '',
-        sequence_order: nextOrder,
-        serial_number: '',
-        nameplate_image_url: '',
-        sequences: []
-      });
+      const nextOrder = machines ? Math.max(...machines.map((m) => m.sequence_order || 0), 0) + 1 : 1;
+      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder, serial_number: '', nameplate_image_url: '', sequences: [] });
     }
     setIsMachineDialogOpen(true);
   };
-  return <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Lines Panel */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -724,54 +607,62 @@ export default function LinesPage() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Select value={selectedAreaId || '__all__'} onValueChange={val => setSelectedAreaId(val === '__all__' ? '' : val)}>
+          <Select value={selectedAreaId || '__all__'} onValueChange={(val) => setSelectedAreaId(val === '__all__' ? '' : val)}>
             <SelectTrigger>
               <SelectValue placeholder="Filtrar por área..." />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">Todas las áreas</SelectItem>
-              {areas?.map(area => <SelectItem key={area.id} value={area.id}>
+              {areas?.map((area) => (
+                <SelectItem key={area.id} value={area.id}>
                   {area.name}
-                </SelectItem>)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
-          {linesLoading ? <div className="flex justify-center py-8">
+          {linesLoading ? (
+            <div className="flex justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin" />
-            </div> : <div className="space-y-2">
-              {lines?.map(line => <div key={line.id} className={cn('flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors', selectedLineId === line.id ? 'bg-primary/10 border-primary' : 'hover:bg-secondary')} onClick={() => setSelectedLineId(line.id)}>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {lines?.map((line) => (
+                <div
+                  key={line.id}
+                  className={cn(
+                    'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors',
+                    selectedLineId === line.id ? 'bg-primary/10 border-primary' : 'hover:bg-secondary'
+                  )}
+                  onClick={() => setSelectedLineId(line.id)}
+                >
                   <div className="flex items-center gap-3">
                     <GripVertical className="w-4 h-4 text-muted-foreground" />
                     <div>
                       <p className="font-medium">{line.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {areas?.find(a => a.id === line.area_id)?.name} • {(line.machines as any)?.[0]?.count || 0} equipos
+                        {areas?.find((a) => a.id === line.area_id)?.name} • {(line.machines as any)?.[0]?.count || 0} equipos
                       </p>
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={e => {
-                e.stopPropagation();
-                duplicateLineMutation.mutate(line);
-              }}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); duplicateLineMutation.mutate(line); }}>
                       <Copy className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={e => {
-                e.stopPropagation();
-                openLineDialog(line);
-              }}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openLineDialog(line); }}>
                       <Pencil className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={e => {
-                e.stopPropagation();
-                if (confirm('¿Eliminar línea?')) deleteLineMutation.mutate(line.id);
-              }}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); if (confirm('¿Eliminar línea?')) deleteLineMutation.mutate(line.id); }}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
-                </div>)}
-              {lines?.length === 0 && <p className="text-center text-muted-foreground py-8">No hay líneas. Crea una nueva.</p>}
-            </div>}
+                </div>
+              ))}
+              {lines?.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">No hay líneas. Crea una nueva.</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -779,54 +670,72 @@ export default function LinesPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle>
-            Equipos {selectedLineId && lines?.find(l => l.id === selectedLineId)?.name && `- ${lines.find(l => l.id === selectedLineId)?.name}`}
+            Equipos {selectedLineId && lines?.find((l) => l.id === selectedLineId)?.name && `- ${lines.find((l) => l.id === selectedLineId)?.name}`}
           </CardTitle>
-          {selectedLineId && <Button size="sm" onClick={() => openMachineDialog()}>
+          {selectedLineId && (
+            <Button size="sm" onClick={() => openMachineDialog()}>
               <Plus className="w-4 h-4 mr-1" />
               Nuevo Equipo
-            </Button>}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
-          {!selectedLineId ? <p className="text-center text-muted-foreground py-8">Selecciona una línea para ver sus equipos</p> : machinesLoading ? <div className="flex justify-center py-8">
+          {!selectedLineId ? (
+            <p className="text-center text-muted-foreground py-8">Selecciona una línea para ver sus equipos</p>
+          ) : machinesLoading ? (
+            <div className="flex justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin" />
-            </div> : <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMachineDragEnd}>
-              <SortableContext items={machines?.map(m => m.id) || []} strategy={verticalListSortingStrategy}>
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMachineDragEnd}>
+              <SortableContext items={machines?.map((m) => m.id) || []} strategy={verticalListSortingStrategy}>
                 <div className="space-y-3">
-                  {machines?.map((machine, index) => <SortableMachineItem key={machine.id} machine={machine} index={index}>
+                  {machines?.map((machine, index) => (
+                    <SortableMachineItem key={machine.id} machine={machine} index={index}>
                       <div className="flex items-center gap-3 p-3">
                         <span className="w-6 h-6 flex items-center justify-center bg-muted rounded text-xs font-medium">
                           {index + 1}
                         </span>
-                        {machine.image_url ? <img src={machine.image_url} alt={machine.name} className="w-12 h-12 rounded object-cover" /> : <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
+                        {machine.image_url ? (
+                          <img src={machine.image_url} alt={machine.name} className="w-12 h-12 rounded object-cover" />
+                        ) : (
+                          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
                             <Upload className="w-4 h-4 text-muted-foreground" />
-                          </div>}
+                          </div>
+                        )}
                         <div className="flex-1">
                           <p className="font-medium">{machine.name}</p>
                           <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">{machine.machine_type || 'Sin tipo'}</span>
-                            {machine.sequences && machine.sequences.length > 0 && <div className="flex gap-1">
-                                {machine.sequences.slice(0, 2).map((seq: string) => <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
+                            {machine.sequences && machine.sequences.length > 0 && (
+                              <div className="flex gap-1">
+                                {machine.sequences.slice(0, 2).map((seq: string) => (
+                                  <Badge key={seq} variant="outline" className="text-xs px-1 py-0">
                                     {seq}
-                                  </Badge>)}
-                                {machine.sequences.length > 2 && <Badge variant="outline" className="text-xs px-1 py-0">
+                                  </Badge>
+                                ))}
+                                {machine.sequences.length > 2 && (
+                                  <Badge variant="outline" className="text-xs px-1 py-0">
                                     +{machine.sequences.length - 2}
-                                  </Badge>}
-                              </div>}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" title="Editar atributos de secciones" onClick={() => setEditingAttributesMachine({
-                      id: machine.id,
-                      name: machine.name
-                    })}>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            title="Editar atributos de secciones"
+                            onClick={() => setEditingAttributesMachine({ id: machine.id, name: machine.name })}
+                          >
                             <Settings2 className="w-4 h-4" />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => openMachineDialog(machine)}>
                             <Pencil className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => {
-                      if (confirm('¿Eliminar equipo?')) deleteMachineMutation.mutate(machine.id);
-                    }}>
+                          <Button variant="ghost" size="icon" onClick={() => { if (confirm('¿Eliminar equipo?')) deleteMachineMutation.mutate(machine.id); }}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -835,11 +744,15 @@ export default function LinesPage() {
                       <div className="px-3 pb-3">
                         <MachineSectionsPanel machineId={machine.id} compact />
                       </div>
-                    </SortableMachineItem>)}
-                  {machines?.length === 0 && <p className="text-center text-muted-foreground py-8">No hay equipos. Agrega uno nuevo.</p>}
+                    </SortableMachineItem>
+                  ))}
+                  {machines?.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No hay equipos. Agrega uno nuevo.</p>
+                  )}
                 </div>
               </SortableContext>
-            </DndContext>}
+            </DndContext>
+          )}
         </CardContent>
       </Card>
 
@@ -851,11 +764,12 @@ export default function LinesPage() {
           </DialogHeader>
           <Form {...lineForm}>
             <form onSubmit={lineForm.handleSubmit(onLineSubmit)} className="space-y-4">
-              <FormField control={lineForm.control} name="area_id" rules={{
-              required: 'Selecciona un área'
-            }} render={({
-              field
-            }) => <FormItem>
+              <FormField
+                control={lineForm.control}
+                name="area_id"
+                rules={{ required: 'Selecciona un área' }}
+                render={({ field }) => (
+                  <FormItem>
                     <FormLabel>Área</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
@@ -864,33 +778,44 @@ export default function LinesPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {areas?.map(area => <SelectItem key={area.id} value={area.id}>
+                        {areas?.map((area) => (
+                          <SelectItem key={area.id} value={area.id}>
                             {area.name}
-                          </SelectItem>)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
-                  </FormItem>} />
-              <FormField control={lineForm.control} name="name" rules={{
-              required: 'El nombre es requerido'
-            }} render={({
-              field
-            }) => <FormItem>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={lineForm.control}
+                name="name"
+                rules={{ required: 'El nombre es requerido' }}
+                render={({ field }) => (
+                  <FormItem>
                     <FormLabel>Nombre</FormLabel>
                     <FormControl>
                       <Input placeholder="Ej: Línea SMT-1" {...field} />
                     </FormControl>
                     <FormMessage />
-                  </FormItem>} />
-              <FormField control={lineForm.control} name="description" render={({
-              field
-            }) => <FormItem>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={lineForm.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
                     <FormLabel>Descripción</FormLabel>
                     <FormControl>
                       <Textarea placeholder="Descripción de la línea..." {...field} />
                     </FormControl>
                     <FormMessage />
-                  </FormItem>} />
+                  </FormItem>
+                )}
+              />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setIsLineDialogOpen(false)}>
                   Cancelar
@@ -914,20 +839,25 @@ export default function LinesPage() {
           <ScrollArea className="flex-1 pr-4">
             <Form {...machineForm}>
               <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="space-y-4">
-                <FormField control={machineForm.control} name="name" rules={{
-                required: 'El nombre es requerido'
-              }} render={({
-                field
-              }) => <FormItem>
+                <FormField
+                  control={machineForm.control}
+                  name="name"
+                  rules={{ required: 'El nombre es requerido' }}
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Nombre</FormLabel>
                       <FormControl>
                         <Input placeholder="Ej: Impresora DEK" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
-                <FormField control={machineForm.control} name="machine_type" render={({
-                field
-              }) => <FormItem>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="machine_type"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Tipo de Equipo</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value || ''}>
                         <FormControl>
@@ -936,100 +866,161 @@ export default function LinesPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {machineTypes?.map(type => <SelectItem key={type} value={type}>
+                          {machineTypes?.map((type) => (
+                            <SelectItem key={type} value={type}>
                               {type}
-                            </SelectItem>)}
-                          {(!machineTypes || machineTypes.length === 0) && <SelectItem value="__empty__" disabled>
+                            </SelectItem>
+                          ))}
+                          {(!machineTypes || machineTypes.length === 0) && (
+                            <SelectItem value="__empty__" disabled>
                               No hay tipos definidos
-                            </SelectItem>}
+                            </SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
-                    </FormItem>} />
-                <FormField control={machineForm.control} name="sequence_order" render={({
-                field
-              }) => <FormItem>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="sequence_order"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Orden en Línea</FormLabel>
                       <FormControl>
-                        <Input type="number" min={0} {...field} onChange={e => field.onChange(parseInt(e.target.value) || 0)} />
+                        <Input type="number" min={0} {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
-                <FormField control={machineForm.control} name="image_url" render={({
-                field
-              }) => <FormItem>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="image_url"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Imagen del Equipo</FormLabel>
                       <div className="space-y-2">
-                        {field.value && <div className="relative w-32 h-32">
+                        {field.value && (
+                          <div className="relative w-32 h-32">
                             <img src={field.value} alt="Preview" className="w-full h-full object-cover rounded-lg" />
-                            <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 w-6 h-6" onClick={() => machineForm.setValue('image_url', '')}>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-2 -right-2 w-6 h-6"
+                              onClick={() => machineForm.setValue('image_url', '')}
+                            >
                               <X className="w-4 h-4" />
                             </Button>
-                          </div>}
+                          </div>
+                        )}
                         <FormControl>
                           <div className="flex gap-2">
-                            <Input type="file" accept="image/*" onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleImageUpload(file, 'image_url');
-                      }} disabled={uploadingImage} />
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, 'image_url');
+                              }}
+                              disabled={uploadingImage}
+                            />
                           </div>
                         </FormControl>
                         {uploadingImage && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
                       </div>
                       <FormMessage />
-                    </FormItem>} />
-                <FormField control={machineForm.control} name="serial_number" render={({
-                field
-              }) => <FormItem>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="serial_number"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Número de Serie</FormLabel>
                       <FormControl>
                         <Input placeholder="Ej: SN-12345678" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>} />
-                <FormField control={machineForm.control} name="nameplate_image_url" render={({
-                field
-              }) => <FormItem>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={machineForm.control}
+                  name="nameplate_image_url"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Foto de Placa del Equipo</FormLabel>
                       <div className="space-y-2">
-                        {field.value && <div className="relative w-32 h-32">
+                        {field.value && (
+                          <div className="relative w-32 h-32">
                             <img src={field.value} alt="Placa" className="w-full h-full object-cover rounded-lg" />
-                            <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 w-6 h-6" onClick={() => machineForm.setValue('nameplate_image_url', '')}>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute -top-2 -right-2 w-6 h-6"
+                              onClick={() => machineForm.setValue('nameplate_image_url', '')}
+                            >
                               <X className="w-4 h-4" />
                             </Button>
-                          </div>}
+                          </div>
+                        )}
                         <FormControl>
                           <div className="flex gap-2">
-                            <Input type="file" accept="image/*" onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleImageUpload(file, 'nameplate_image_url');
-                      }} disabled={uploadingNameplate} />
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleImageUpload(file, 'nameplate_image_url');
+                              }}
+                              disabled={uploadingNameplate}
+                            />
                           </div>
                         </FormControl>
                         {uploadingNameplate && <p className="text-sm text-muted-foreground">Subiendo imagen...</p>}
                       </div>
                       <FormMessage />
-                    </FormItem>} />
+                    </FormItem>
+                  )}
+                />
 
                 {/* Sequences field */}
-                <FormField control={machineForm.control} name="sequences" render={({
-                field
-              }) => <FormItem>
+                <FormField
+                  control={machineForm.control}
+                  name="sequences"
+                  render={({ field }) => (
+                    <FormItem>
                       <FormLabel>Secuencias</FormLabel>
                       <FormControl>
-                        <SequenceChips value={field.value || []} onChange={sequences => field.onChange(sequences)} placeholder="Ej: 50, 50-1, 50-3..." />
+                        <SequenceChips
+                          value={field.value || []}
+                          onChange={(sequences) => field.onChange(sequences)}
+                          placeholder="Ej: 50, 50-1, 50-3..."
+                        />
                       </FormControl>
-                      
+                      <p className="text-xs text-muted-foreground">
+                        Identifica la posición del equipo en la línea SMT
+                      </p>
                       <FormMessage />
-                    </FormItem>} />
+                    </FormItem>
+                  )}
+                />
 
                 {/* Dynamic Template Attributes */}
-                {loadingAttributes && <div className="flex items-center gap-2 py-4">
+                {loadingAttributes && (
+                  <div className="flex items-center gap-2 py-4">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Cargando atributos de la plantilla...</span>
-                  </div>}
+                  </div>
+                )}
 
-                {!loadingAttributes && templateAttributes.length > 0 && !editingMachine && <div className="space-y-4 pt-2">
+                {!loadingAttributes && templateAttributes.length > 0 && !editingMachine && (
+                  <div className="space-y-4 pt-2">
                     <Separator />
                     <div>
                       <h4 className="text-sm font-semibold mb-3">Atributos del Tipo de Equipo</h4>
@@ -1040,43 +1031,79 @@ export default function LinesPage() {
                     
                     {/* Group attributes by section */}
                     {(() => {
-                  const sections = [...new Set(templateAttributes.map(a => a.section_name))];
-                  return sections.map(sectionName => {
-                    const sectionAttrs = templateAttributes.filter(a => a.section_name === sectionName);
-                    return <div key={sectionName} className="space-y-3">
+                      const sections = [...new Set(templateAttributes.map(a => a.section_name))];
+                      return sections.map(sectionName => {
+                        const sectionAttrs = templateAttributes.filter(a => a.section_name === sectionName);
+                        return (
+                          <div key={sectionName} className="space-y-3">
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
                                 {sectionName}
                               </Badge>
                             </div>
                             {sectionAttrs.map(attr => {
-                        const fieldKey = `attr_${attr.template_id}_${attr.id}`;
-                        return <FormField key={attr.id} control={machineForm.control} name={fieldKey as any} render={({
-                          field
-                        }) => <FormItem>
+                              const fieldKey = `attr_${attr.template_id}_${attr.id}`;
+                              return (
+                                <FormField
+                                  key={attr.id}
+                                  control={machineForm.control}
+                                  name={fieldKey as any}
+                                  render={({ field }) => (
+                                    <FormItem>
                                       <FormLabel className="flex items-center gap-1">
                                         {attr.attribute_name}
                                         {attr.is_required && <span className="text-destructive">*</span>}
                                       </FormLabel>
                                       <FormControl>
-                                        {attr.attribute_type === 'select' && attr.options ? <Select onValueChange={field.onChange} value={field.value as string || ''}>
+                                        {attr.attribute_type === 'select' && attr.options ? (
+                                          <Select 
+                                            onValueChange={field.onChange} 
+                                            value={field.value as string || ''}
+                                          >
                                             <SelectTrigger>
                                               <SelectValue placeholder={`Seleccionar ${attr.attribute_name}...`} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                              {(attr.options as string[]).map((option: string) => <SelectItem key={option} value={option}>
+                                              {(attr.options as string[]).map((option: string) => (
+                                                <SelectItem key={option} value={option}>
                                                   {option}
-                                                </SelectItem>)}
+                                                </SelectItem>
+                                              ))}
                                             </SelectContent>
-                                          </Select> : attr.attribute_type === 'number' ? <Input type="number" placeholder={`Ingresar ${attr.attribute_name}...`} value={field.value as string || ''} onChange={e => field.onChange(e.target.value)} /> : attr.attribute_type === 'textarea' ? <Textarea placeholder={`Ingresar ${attr.attribute_name}...`} value={field.value as string || ''} onChange={e => field.onChange(e.target.value)} /> : <Input placeholder={`Ingresar ${attr.attribute_name}...`} value={field.value as string || ''} onChange={e => field.onChange(e.target.value)} />}
+                                          </Select>
+                                        ) : attr.attribute_type === 'number' ? (
+                                          <Input
+                                            type="number"
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        ) : attr.attribute_type === 'textarea' ? (
+                                          <Textarea
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        ) : (
+                                          <Input
+                                            placeholder={`Ingresar ${attr.attribute_name}...`}
+                                            value={field.value as string || ''}
+                                            onChange={(e) => field.onChange(e.target.value)}
+                                          />
+                                        )}
                                       </FormControl>
                                       <FormMessage />
-                                    </FormItem>} />;
-                      })}
-                          </div>;
-                  });
-                })()}
-                  </div>}
+                                    </FormItem>
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
@@ -1094,6 +1121,14 @@ export default function LinesPage() {
       </Dialog>
 
       {/* Edit Section Attributes Dialog */}
-      {editingAttributesMachine && <EditSectionAttributesDialog open={!!editingAttributesMachine} onOpenChange={open => !open && setEditingAttributesMachine(null)} machineId={editingAttributesMachine.id} machineName={editingAttributesMachine.name} />}
-    </div>;
+      {editingAttributesMachine && (
+        <EditSectionAttributesDialog
+          open={!!editingAttributesMachine}
+          onOpenChange={(open) => !open && setEditingAttributesMachine(null)}
+          machineId={editingAttributesMachine.id}
+          machineName={editingAttributesMachine.name}
+        />
+      )}
+    </div>
+  );
 }
