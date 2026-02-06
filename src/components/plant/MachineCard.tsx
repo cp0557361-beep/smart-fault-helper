@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Wrench } from 'lucide-react';
+import { AlertTriangle, Wrench } from 'lucide-react';
 import { StatusIndicator } from '@/components/ui/StatusIndicator';
 import { cn } from '@/lib/utils';
 
@@ -11,6 +11,7 @@ interface MachineCardProps {
   machineType: string;
   status: MachineStatus;
   sequenceOrder: number;
+  sequences?: string[];
   onClick: () => void;
 }
 
@@ -54,6 +55,7 @@ export function MachineCard({
   machineType,
   status,
   sequenceOrder,
+  sequences,
   onClick,
 }: MachineCardProps) {
   const icon = machineIcons[machineType] || '⚙️';
@@ -62,7 +64,7 @@ export function MachineCard({
     <button
       onClick={onClick}
       className={cn(
-        'machine-card w-full text-left flex flex-col gap-3',
+        'machine-card w-full text-left flex flex-col gap-2',
         status === 'ok' && 'machine-card-ok',
         status === 'fault' && 'machine-card-fault',
         status === 'warning' && 'border-status-warning/50 hover:border-status-warning'
@@ -81,35 +83,38 @@ export function MachineCard({
       {/* Machine info */}
       <div className="flex items-center gap-3 mt-2">
         <span className="text-3xl">{icon}</span>
-        <div>
-          <h4 className="font-semibold text-foreground">{name}</h4>
-          <p className="text-sm text-muted-foreground">{machineType}</p>
+        <div className="min-w-0 flex-1">
+          <h4 className="font-semibold text-foreground truncate">{name}</h4>
+          <p className="text-sm text-muted-foreground truncate">{machineType}</p>
         </div>
       </div>
 
-      {/* Status label */}
-      <div className={cn(
-        'flex items-center gap-2 mt-auto pt-2 border-t border-border/50',
-      )}>
-        {status === 'ok' && (
-          <>
-            <CheckCircle2 className="w-4 h-4 text-status-ok" />
-            <span className="text-sm text-status-ok">Operativo</span>
-          </>
-        )}
-        {status === 'fault' && (
-          <>
-            <AlertTriangle className="w-4 h-4 text-status-fault" />
-            <span className="text-sm text-status-fault">Falla Reportada</span>
-          </>
-        )}
-        {status === 'warning' && (
-          <>
-            <Wrench className="w-4 h-4 text-status-warning" />
-            <span className="text-sm text-status-warning">En Revisión</span>
-          </>
-        )}
-      </div>
+      {/* Sequences display */}
+      {sequences && sequences.length > 0 && (
+        <div className="text-xs text-muted-foreground/70 truncate">
+          Sec: {sequences.join(', ')}
+        </div>
+      )}
+
+      {/* Status label - Only show when fault or warning */}
+      {(status === 'fault' || status === 'warning') && (
+        <div className={cn(
+          'flex items-center gap-2 mt-auto pt-2 border-t border-border/50',
+        )}>
+          {status === 'fault' && (
+            <>
+              <AlertTriangle className="w-4 h-4 text-status-fault" />
+              <span className="text-sm text-status-fault">Falla Reportada</span>
+            </>
+          )}
+          {status === 'warning' && (
+            <>
+              <Wrench className="w-4 h-4 text-status-warning" />
+              <span className="text-sm text-status-warning">En Revisión</span>
+            </>
+          )}
+        </div>
+      )}
     </button>
   );
 }

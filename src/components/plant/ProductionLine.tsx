@@ -13,6 +13,7 @@ interface Machine {
   machine_type: string;
   status: MachineStatus;
   sequence_order: number;
+  sequences?: string[];
 }
 
 interface ProductionLineProps {
@@ -75,6 +76,7 @@ export function ProductionLine({
                     machineType={machine.machine_type}
                     status={machine.status}
                     sequenceOrder={machine.sequence_order}
+                    sequences={machine.sequences}
                     onClick={() => onMachineClick(machine.id)}
                   />
                 </div>
@@ -95,6 +97,7 @@ export function ProductionLine({
                 machineType={machine.machine_type}
                 status={machine.status}
                 sequenceOrder={machine.sequence_order}
+                sequences={machine.sequences}
                 onClick={() => onMachineClick(machine.id)}
               />
             ))}

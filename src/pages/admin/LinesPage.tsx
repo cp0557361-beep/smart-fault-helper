@@ -208,18 +208,30 @@ export default function LinesPage() {
     },
   });
 
-  // Fetch machine types from dedicated table
-  const { data: machineTypes } = useQuery({
+  // Fetch machine types from dedicated table with sequences
+  const { data: machineTypesData } = useQuery({
     queryKey: ['machine-types-dropdown'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('machine_types')
-        .select('name')
-       .order('sequence_order');
+        .select('name, sequences')
+        .order('sequence_order');
       if (error) throw error;
-      return data.map((t) => t.name);
+      return data;
     },
   });
+
+  const machineTypes = machineTypesData?.map((t) => t.name);
+
+  // Auto-populate sequences when machine type changes
+  useEffect(() => {
+    if (!watchedMachineType || editingMachine) return;
+    
+    const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
+    if (selectedType?.sequences && selectedType.sequences.length > 0) {
+      setMachineSequences(selectedType.sequences);
+    }
+  }, [watchedMachineType, machineTypesData, editingMachine]);
 
   const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
