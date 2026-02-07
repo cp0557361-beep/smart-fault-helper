@@ -844,13 +844,14 @@ export default function LinesPage() {
 
       {/* Machine Dialog */}
       <Dialog open={isMachineDialogOpen} onOpenChange={setIsMachineDialogOpen}>
-        <DialogContent className="max-h-[90vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-h-[90vh] max-w-lg flex flex-col overflow-hidden">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>{editingMachine ? 'Editar Equipo' : 'Nuevo Equipo'}</DialogTitle>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-4">
-            <Form {...machineForm}>
-              <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="space-y-4">
+          <Form {...machineForm}>
+            <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="flex flex-col flex-1 min-h-0">
+              <ScrollArea className="flex-1 pr-4">
+                <div className="space-y-4 pb-4">
                 <FormField
                   control={machineForm.control}
                   name="name"
@@ -1112,18 +1113,19 @@ export default function LinesPage() {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={createMachineMutation.isPending || updateMachineMutation.isPending}>
-                    {(createMachineMutation.isPending || updateMachineMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    {editingMachine ? 'Guardar' : 'Crear'}
-                  </Button>
                 </div>
-              </form>
-            </Form>
-          </ScrollArea>
+              </ScrollArea>
+              <div className="flex justify-end gap-2 pt-4 flex-shrink-0 border-t mt-4">
+                <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={createMachineMutation.isPending || updateMachineMutation.isPending}>
+                  {(createMachineMutation.isPending || updateMachineMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                  {editingMachine ? 'Guardar' : 'Crear'}
+                </Button>
+              </div>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
 
