@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Settings2 } from 'lucide-react';
@@ -202,8 +202,8 @@ export function EditSectionAttributesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="w-5 h-5" />
             Editar Atributos - {machineName}
@@ -220,7 +220,7 @@ export function EditSectionAttributesDialog({
             Este equipo no tiene secciones definidas. Asegúrate de que tenga un tipo de equipo con plantilla asociada.
           </div>
         ) : (
-          <ScrollArea className="flex-1 pr-4">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y pr-2">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {sections?.map((section, index) => {
@@ -277,7 +277,7 @@ export function EditSectionAttributesDialog({
                 </div>
               </form>
             </Form>
-          </ScrollArea>
+          </div>
         )}
       </DialogContent>
     </Dialog>
