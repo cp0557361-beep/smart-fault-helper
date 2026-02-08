@@ -12,7 +12,7 @@ import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X, Settings2
 import { useForm } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { MachineSectionsPanel } from '@/components/plant/MachineSectionsPanel';
@@ -850,7 +850,7 @@ export default function LinesPage() {
           </DialogHeader>
           <Form {...machineForm}>
             <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="flex flex-col flex-1 min-h-0">
-              <ScrollArea className="flex-1 pr-4">
+              <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y pr-2">
                 <div className="space-y-4 pb-4">
                 <FormField
                   control={machineForm.control}
@@ -1114,7 +1114,7 @@ export default function LinesPage() {
                 )}
 
                 </div>
-              </ScrollArea>
+              </div>
               <div className="flex justify-end gap-2 pt-4 flex-shrink-0 border-t mt-4">
                 <Button type="button" variant="outline" onClick={() => setIsMachineDialogOpen(false)}>
                   Cancelar
