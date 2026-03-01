@@ -213,10 +213,10 @@ export default function LinesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('machine_types')
-        .select('name, sequences')
+        .select('name, sequences, default_line_order')
         .order('sequence_order');
       if (error) throw error;
-      return data;
+      return data as { name: string; sequences: string[] | null; default_line_order: number | null }[];
     },
   });
 
@@ -407,17 +407,58 @@ export default function LinesPage() {
     }
   };
 
+  // Positioning algorithm: reorder all machines in the line based on default_line_order
+  const reorderByDefaultLineOrder = async (lineId: string) => {
+    // Fetch all machines in this line
+    const { data: lineMachines, error: fetchError } = await supabase
+      .from('machines')
+      .select('id, machine_type, sequence_order')
+      .eq('production_line_id', lineId)
+      .order('sequence_order');
+    if (fetchError) throw fetchError;
+    if (!lineMachines || lineMachines.length === 0) return;
+
+    // Build a map of machine_type -> default_line_order
+    const typeOrderMap = new Map<string, number>();
+    machineTypesData?.forEach(t => {
+      typeOrderMap.set(t.name, t.default_line_order ?? 0);
+    });
+
+    // Sort machines by their type's default_line_order, then by current sequence_order as tiebreaker
+    const sorted = [...lineMachines].sort((a, b) => {
+      const orderA = typeOrderMap.get(a.machine_type || '') ?? 999;
+      const orderB = typeOrderMap.get(b.machine_type || '') ?? 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.sequence_order ?? 0) - (b.sequence_order ?? 0);
+    });
+
+    // Update sequence_order = 0, 1, 2...
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].sequence_order !== i) {
+        const { error } = await supabase
+          .from('machines')
+          .update({ sequence_order: i })
+          .eq('id', sorted[i].id);
+        if (error) throw error;
+      }
+    }
+  };
+
   // Machine mutations
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
       // Extract base machine fields
       const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, sequences, ...attributeValues } = values;
       
-      // Create machine with sequences from template (machineSequences state)
+      // Get default_line_order from template
+      const typeData = machineTypesData?.find(t => t.name === machine_type);
+      const defaultOrder = typeData?.default_line_order ?? sequence_order;
+
+      // Create machine with default_line_order as initial sequence_order
       const { data: newMachine, error } = await supabase.from('machines').insert({
         name,
         machine_type,
-        sequence_order,
+        sequence_order: defaultOrder,
         image_url,
         serial_number,
         nameplate_image_url,
@@ -425,6 +466,9 @@ export default function LinesPage() {
         production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
+
+      // Reorder all machines in the line based on default_line_order
+      await reorderByDefaultLineOrder(selectedLineId!);
 
       // Apply template sections if machine type is set
       if (machine_type) {
@@ -601,8 +645,7 @@ export default function LinesPage() {
     } else {
       setEditingMachine(null);
       setMachineSequences([]);
-      const nextOrder = machines ? Math.max(...machines.map((m) => m.sequence_order || 0), 0) + 1 : 1;
-      machineForm.reset({ name: '', machine_type: '', sequence_order: nextOrder, serial_number: '', nameplate_image_url: '', sequences: [] });
+      machineForm.reset({ name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] });
     }
     setIsMachineDialogOpen(true);
   };

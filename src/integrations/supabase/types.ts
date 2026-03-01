@@ -285,6 +285,7 @@ export type Database = {
       machine_types: {
         Row: {
           created_at: string
+          default_line_order: number | null
           description: string | null
           id: string
           name: string
@@ -294,6 +295,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_line_order?: number | null
           description?: string | null
           id?: string
           name: string
@@ -303,6 +305,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_line_order?: number | null
           description?: string | null
           id?: string
           name?: string
