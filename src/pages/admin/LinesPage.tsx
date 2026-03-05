@@ -39,6 +39,7 @@ interface LineForm {
   name: string;
   description: string;
   area_id: string;
+  line_category_id: string;
 }
 
 interface MachineForm {
@@ -117,8 +118,10 @@ export default function LinesPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '' } });
+  const lineForm = useForm<LineForm>({ defaultValues: { name: '', description: '', area_id: '', line_category_id: '' } });
   const machineForm = useForm<MachineForm>({ defaultValues: { name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] } });
+
+  const watchedLineCategoryId = lineForm.watch('line_category_id');
 
   const watchedMachineType = machineForm.watch('machine_type');
 
@@ -207,6 +210,29 @@ export default function LinesPage() {
     },
   });
 
+  // Fetch line categories
+  const { data: lineCategories } = useQuery({
+    queryKey: ['line-categories'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('line_categories').select('*').order('sequence_order');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Fetch category assignments to filter machine types
+  const { data: allCategoryAssignments } = useQuery({
+    queryKey: ['all-category-assignments'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('machine_type_line_categories')
+        .select('machine_type_id, line_category_id, machine_types(name)')
+        .order('sequence_order');
+      if (error) throw error;
+      return data;
+    },
+  });
+
   // Fetch machine types from dedicated table with sequences
   const { data: machineTypesData } = useQuery({
     queryKey: ['machine-types-dropdown'],
@@ -220,7 +246,7 @@ export default function LinesPage() {
     },
   });
 
-  const machineTypes = machineTypesData?.map((t) => t.name);
+  // machineTypes will be computed after lines query below
 
   // Auto-populate sequences when machine type changes (always from template)
   useEffect(() => {
@@ -258,6 +284,25 @@ export default function LinesPage() {
     },
   });
 
+  // Get the selected line's category to filter machine types
+  const selectedLine = lines?.find(l => l.id === selectedLineId);
+  const selectedLineCategoryId = (selectedLine as any)?.line_category_id;
+
+  // Filter machine types by the line's category
+  const machineTypes = (() => {
+    if (!selectedLineCategoryId || !allCategoryAssignments) {
+      return machineTypesData?.map(t => t.name);
+    }
+    const allowedNames = new Set(
+      allCategoryAssignments
+        .filter(a => a.line_category_id === selectedLineCategoryId)
+        .map(a => (a.machine_types as any)?.name)
+        .filter(Boolean)
+    );
+    if (allowedNames.size === 0) return machineTypesData?.map(t => t.name);
+    return machineTypesData?.map(t => t.name).filter(name => allowedNames.has(name));
+  })();
+
   // Line mutations
   const createLineMutation = useMutation({
     mutationFn: async (values: LineForm) => {
@@ -266,7 +311,11 @@ export default function LinesPage() {
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
       }
-      const { error } = await supabase.from('production_lines').insert(values);
+      const { line_category_id, ...rest } = values;
+      const { error } = await supabase.from('production_lines').insert({
+        ...rest,
+        line_category_id: line_category_id || null,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -285,7 +334,11 @@ export default function LinesPage() {
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
       }
-      const { error } = await supabase.from('production_lines').update(values).eq('id', id);
+      const { line_category_id, ...rest } = values;
+      const { error } = await supabase.from('production_lines').update({
+        ...rest,
+        line_category_id: line_category_id || null,
+      }).eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -583,10 +636,11 @@ export default function LinesPage() {
   };
 
   const onLineSubmit = (values: LineForm) => {
+    const cleaned = { ...values, line_category_id: values.line_category_id === '__none__' ? '' : values.line_category_id };
     if (editingLine) {
-      updateLineMutation.mutate({ id: editingLine.id, ...values });
+      updateLineMutation.mutate({ id: editingLine.id, ...cleaned });
     } else {
-      createLineMutation.mutate(values);
+      createLineMutation.mutate(cleaned);
     }
   };
 
@@ -620,10 +674,10 @@ export default function LinesPage() {
   const openLineDialog = (line?: any) => {
     if (line) {
       setEditingLine(line);
-      lineForm.reset({ name: line.name, description: line.description || '', area_id: line.area_id });
+      lineForm.reset({ name: line.name, description: line.description || '', area_id: line.area_id, line_category_id: line.line_category_id || '' });
     } else {
       setEditingLine(null);
-      lineForm.reset({ name: '', description: '', area_id: selectedAreaId || '' });
+      lineForm.reset({ name: '', description: '', area_id: selectedAreaId || '', line_category_id: '' });
     }
     setIsLineDialogOpen(true);
   };
@@ -694,7 +748,14 @@ export default function LinesPage() {
                   <div className="flex items-center gap-3">
                     <GripVertical className="w-4 h-4 text-muted-foreground" />
                     <div>
-                      <p className="font-medium">{line.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{line.name}</p>
+                        {(line as any).line_category_id && lineCategories?.find(c => c.id === (line as any).line_category_id) && (
+                          <Badge variant="outline" className="text-xs">
+                            {lineCategories.find(c => c.id === (line as any).line_category_id)?.name}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         {areas?.find((a) => a.id === line.area_id)?.name} • {(line.machines as any)?.[0]?.count || 0} equipos
                       </p>
@@ -836,6 +897,31 @@ export default function LinesPage() {
                         {areas?.map((area) => (
                           <SelectItem key={area.id} value={area.id}>
                             {area.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={lineForm.control}
+                name="line_category_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoría de Línea</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || '__none__'}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin categoría" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin categoría</SelectItem>
+                        {lineCategories?.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.name}
                           </SelectItem>
                         ))}
                       </SelectContent>

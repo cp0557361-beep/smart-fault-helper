@@ -201,6 +201,33 @@ export type Database = {
           },
         ]
       }
+      line_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          sequence_order: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          sequence_order?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          sequence_order?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       machine_section_templates: {
         Row: {
           created_at: string
@@ -278,6 +305,45 @@ export type Database = {
             columns: ["template_id"]
             isOneToOne: false
             referencedRelation: "machine_section_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      machine_type_line_categories: {
+        Row: {
+          created_at: string
+          id: string
+          line_category_id: string
+          machine_type_id: string
+          sequence_order: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_category_id: string
+          machine_type_id: string
+          sequence_order?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_category_id?: string
+          machine_type_id?: string
+          sequence_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "machine_type_line_categories_line_category_id_fkey"
+            columns: ["line_category_id"]
+            isOneToOne: false
+            referencedRelation: "line_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "machine_type_line_categories_machine_type_id_fkey"
+            columns: ["machine_type_id"]
+            isOneToOne: false
+            referencedRelation: "machine_types"
             referencedColumns: ["id"]
           },
         ]
@@ -374,6 +440,7 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          line_category_id: string | null
           name: string
           sequence_order: number | null
           updated_at: string
@@ -383,6 +450,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          line_category_id?: string | null
           name: string
           sequence_order?: number | null
           updated_at?: string
@@ -392,6 +460,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          line_category_id?: string | null
           name?: string
           sequence_order?: number | null
           updated_at?: string
@@ -402,6 +471,13 @@ export type Database = {
             columns: ["area_id"]
             isOneToOne: false
             referencedRelation: "areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_lines_line_category_id_fkey"
+            columns: ["line_category_id"]
+            isOneToOne: false
+            referencedRelation: "line_categories"
             referencedColumns: ["id"]
           },
         ]
