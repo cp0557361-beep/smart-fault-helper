@@ -17,6 +17,7 @@ import LinesPage from "./pages/admin/LinesPage";
 import FaultsPage from "./pages/admin/FaultsPage";
 import GlossaryPage from "./pages/admin/GlossaryPage";
 import MachineTypesPage from "./pages/admin/MachineTypesPage";
+import LineCategoriesPage from "./pages/admin/LineCategoriesPage";
 
 const queryClient = new QueryClient();
 
@@ -83,6 +84,7 @@ const App = () => (
                 <Route path="faults" element={<FaultsPage />} />
                 <Route path="glossary" element={<GlossaryPage />} />
                 <Route path="machine-types" element={<MachineTypesPage />} />
+                <Route path="line-categories" element={<LineCategoriesPage />} />
               </Route>
             </Route>
 
