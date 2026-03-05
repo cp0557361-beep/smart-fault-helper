@@ -8,10 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X, Settings2 } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, Copy, GripVertical, Upload, X, Settings2, FileDown } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
 
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,7 @@ interface MachineForm {
   serial_number?: string;
   nameplate_image_url?: string;
   sequences?: string[];
-  [key: string]: string | number | string[] | undefined; // For dynamic template attributes
+  [key: string]: string | number | string[] | undefined;
 }
 
 interface TemplateAttribute {
@@ -62,6 +63,18 @@ interface TemplateAttribute {
   is_required: boolean;
   options: any;
   sequence_order: number;
+}
+
+// Checklist item for duplication/creation from template
+interface MachineChecklistItem {
+  id: string;
+  name: string;
+  machine_type: string | null;
+  sequence_order: number;
+  selected: boolean;
+  // For template-based creation
+  isFromTemplate?: boolean;
+  templateSequenceOrder?: number;
 }
 
 // Sortable machine item component
@@ -112,6 +125,16 @@ export default function LinesPage() {
   const [editingAttributesMachine, setEditingAttributesMachine] = useState<{ id: string; name: string } | null>(null);
   const [machineSequences, setMachineSequences] = useState<string[]>([]);
 
+  // Duplication/template checklist state
+  const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
+  const [duplicateChecklist, setDuplicateChecklist] = useState<MachineChecklistItem[]>([]);
+  const [duplicateSourceLine, setDuplicateSourceLine] = useState<any>(null);
+  const [duplicateNewName, setDuplicateNewName] = useState('');
+
+  // Create from template state
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [templateChecklist, setTemplateChecklist] = useState<MachineChecklistItem[]>([]);
+
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -135,7 +158,6 @@ export default function LinesPage() {
 
       setLoadingAttributes(true);
       try {
-        // Get all templates for this machine type
         const { data: templates, error: templatesError } = await supabase
           .from('machine_section_templates')
           .select('id, section_name, sequence_order')
@@ -148,7 +170,6 @@ export default function LinesPage() {
           return;
         }
 
-        // Get all attribute definitions for these templates
         const templateIds = templates.map(t => t.id);
         const { data: attributes, error: attrError } = await supabase
           .from('section_attribute_definitions')
@@ -158,7 +179,6 @@ export default function LinesPage() {
 
         if (attrError) throw attrError;
 
-        // Map attributes with section names
         const mappedAttributes: TemplateAttribute[] = (attributes || []).map(attr => {
           const template = templates.find(t => t.id === attr.template_id);
           return {
@@ -226,7 +246,7 @@ export default function LinesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('machine_type_line_categories')
-        .select('machine_type_id, line_category_id, machine_types(name)')
+        .select('machine_type_id, line_category_id, sequence_order, machine_types(id, name, sequences)')
         .order('sequence_order');
       if (error) throw error;
       return data;
@@ -239,14 +259,12 @@ export default function LinesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('machine_types')
-        .select('name, sequences, default_line_order')
+        .select('id, name, sequences, default_line_order')
         .order('sequence_order');
       if (error) throw error;
-      return data as { name: string; sequences: string[] | null; default_line_order: number | null }[];
+      return data as { id: string; name: string; sequences: string[] | null; default_line_order: number | null }[];
     },
   });
-
-  // machineTypes will be computed after lines query below
 
   // Auto-populate sequences when machine type changes (always from template)
   useEffect(() => {
@@ -303,25 +321,60 @@ export default function LinesPage() {
     return machineTypesData?.map(t => t.name).filter(name => allowedNames.has(name));
   })();
 
+  // Get category-based sequence order for a machine type in a given line category
+  const getCategorySequenceOrder = (machineTypeName: string, lineCategoryId: string | null): number => {
+    if (!lineCategoryId || !allCategoryAssignments || !machineTypesData) return 999;
+    const machineType = machineTypesData.find(t => t.name === machineTypeName);
+    if (!machineType) return 999;
+    const assignment = allCategoryAssignments.find(
+      a => a.machine_type_id === machineType.id && a.line_category_id === lineCategoryId
+    );
+    return assignment?.sequence_order ?? 999;
+  };
+
   // Line mutations
   const createLineMutation = useMutation({
     mutationFn: async (values: LineForm) => {
-      // Check for duplicate name
       const isDuplicate = await checkDuplicateLineName(values.name, values.area_id);
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
       }
       const { line_category_id, ...rest } = values;
-      const { error } = await supabase.from('production_lines').insert({
+      const { data: newLine, error } = await supabase.from('production_lines').insert({
         ...rest,
         line_category_id: line_category_id || null,
-      });
+      }).select().single();
       if (error) throw error;
+      return newLine;
     },
-    onSuccess: () => {
+    onSuccess: (newLine) => {
       queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
       toast({ title: 'Línea creada' });
       setIsLineDialogOpen(false);
+      
+      // If line has a category, offer to create from template
+      const catId = lineForm.getValues('line_category_id');
+      if (catId && catId !== '__none__' && allCategoryAssignments) {
+        const categoryTypes = allCategoryAssignments
+          .filter(a => a.line_category_id === catId)
+          .sort((a, b) => (a.sequence_order ?? 0) - (b.sequence_order ?? 0));
+        
+        if (categoryTypes.length > 0) {
+          const checklist: MachineChecklistItem[] = categoryTypes.map((ct, idx) => ({
+            id: ct.machine_type_id,
+            name: (ct.machine_types as any)?.name || 'Desconocido',
+            machine_type: (ct.machine_types as any)?.name || null,
+            sequence_order: ct.sequence_order ?? idx,
+            selected: true,
+            isFromTemplate: true,
+            templateSequenceOrder: ct.sequence_order ?? idx,
+          }));
+          setTemplateChecklist(checklist);
+          setDuplicateSourceLine(newLine);
+          setIsTemplateDialogOpen(true);
+        }
+      }
+      
       lineForm.reset();
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
@@ -329,7 +382,6 @@ export default function LinesPage() {
 
   const updateLineMutation = useMutation({
     mutationFn: async ({ id, ...values }: LineForm & { id: string }) => {
-      // Check for duplicate name (excluding current line)
       const isDuplicate = await checkDuplicateLineName(values.name, values.area_id, id);
       if (isDuplicate) {
         throw new Error('Ya existe una línea con este nombre en el área seleccionada');
@@ -364,52 +416,134 @@ export default function LinesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Open duplicate dialog with checklist
+  const openDuplicateDialog = async (line: any) => {
+    const { data: lineMachines, error } = await supabase
+      .from('machines')
+      .select('*')
+      .eq('production_line_id', line.id)
+      .order('sequence_order');
+    
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+
+    const checklist: MachineChecklistItem[] = (lineMachines || []).map(m => ({
+      id: m.id,
+      name: m.name,
+      machine_type: m.machine_type,
+      sequence_order: m.sequence_order ?? 0,
+      selected: true,
+    }));
+
+    setDuplicateChecklist(checklist);
+    setDuplicateSourceLine(line);
+    setDuplicateNewName(`${line.name} (copia)`);
+    setIsDuplicateDialogOpen(true);
+  };
+
   const duplicateLineMutation = useMutation({
-    mutationFn: async (line: any) => {
+    mutationFn: async ({ sourceLine, selectedMachineIds, newName }: { sourceLine: any; selectedMachineIds: string[]; newName: string }) => {
       // Create new line
       const { data: newLine, error: lineError } = await supabase
         .from('production_lines')
         .insert({
-          name: `${line.name} (copia)`,
-          description: line.description,
-          area_id: line.area_id,
-          sequence_order: (line.sequence_order || 0) + 1,
+          name: newName,
+          description: sourceLine.description,
+          area_id: sourceLine.area_id,
+          line_category_id: (sourceLine as any).line_category_id || null,
+          sequence_order: (sourceLine.sequence_order || 0) + 1,
         })
         .select()
         .single();
       if (lineError) throw lineError;
 
-      // Copy machines
+      // Copy selected machines
       const { data: lineMachines, error: machinesError } = await supabase
         .from('machines')
         .select('*')
-        .eq('production_line_id', line.id);
+        .eq('production_line_id', sourceLine.id)
+        .in('id', selectedMachineIds)
+        .order('sequence_order');
       if (machinesError) throw machinesError;
 
       if (lineMachines && lineMachines.length > 0) {
-        const newMachines = lineMachines.map((m) => ({
+        const newMachines = lineMachines.map((m, idx) => ({
           name: m.name,
           machine_type: m.machine_type,
           production_line_id: newLine.id,
-          sequence_order: m.sequence_order,
+          sequence_order: idx,
           image_url: m.image_url,
           serial_number: m.serial_number,
           nameplate_image_url: m.nameplate_image_url,
+          sequences: m.sequences,
         }));
         const { error: insertError } = await supabase.from('machines').insert(newMachines);
         if (insertError) throw insertError;
+
+        // Apply template sections for each copied machine
+        const { data: createdMachines } = await supabase
+          .from('machines')
+          .select('id, machine_type')
+          .eq('production_line_id', newLine.id)
+          .order('sequence_order');
+
+        if (createdMachines) {
+          for (const cm of createdMachines) {
+            if (cm.machine_type) {
+              await applyTemplateToMachine(cm.id, cm.machine_type, {});
+            }
+          }
+        }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
-      toast({ title: 'Línea duplicada', description: 'La línea y sus equipos han sido copiados.' });
+      toast({ title: 'Línea duplicada', description: 'La línea y los equipos seleccionados han sido copiados.' });
+      setIsDuplicateDialogOpen(false);
+      setDuplicateChecklist([]);
+      setDuplicateSourceLine(null);
+    },
+    onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
+  });
+
+  // Create machines from template checklist
+  const createFromTemplateMutation = useMutation({
+    mutationFn: async ({ lineId, selectedTypes }: { lineId: string; selectedTypes: MachineChecklistItem[] }) => {
+      const sorted = [...selectedTypes].sort((a, b) => (a.templateSequenceOrder ?? 0) - (b.templateSequenceOrder ?? 0));
+      
+      for (let i = 0; i < sorted.length; i++) {
+        const item = sorted[i];
+        const typeData = machineTypesData?.find(t => t.name === item.machine_type);
+        
+        const { data: newMachine, error } = await supabase.from('machines').insert({
+          name: item.name,
+          machine_type: item.machine_type,
+          sequence_order: i,
+          sequences: typeData?.sequences || [],
+          production_line_id: lineId,
+        }).select().single();
+        if (error) throw error;
+
+        if (item.machine_type) {
+          await applyTemplateToMachine(newMachine.id, item.machine_type, {});
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-machines'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-lines'] });
+      toast({ title: 'Equipos creados desde plantilla' });
+      setIsTemplateDialogOpen(false);
+      setTemplateChecklist([]);
+      setDuplicateSourceLine(null);
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
   // Apply template sections and attributes to a machine
   const applyTemplateToMachine = async (machineId: string, machineType: string, attributeValues: Record<string, any>) => {
-    // Fetch templates for this machine type
     const { data: templates, error: templatesError } = await supabase
       .from('machine_section_templates')
       .select('*')
@@ -418,7 +552,6 @@ export default function LinesPage() {
     if (templatesError) throw templatesError;
     if (!templates || templates.length === 0) return;
 
-    // Create sections for each template
     for (const template of templates) {
       const { data: newSection, error: sectionError } = await supabase
         .from('machine_sections')
@@ -433,7 +566,6 @@ export default function LinesPage() {
         .single();
       if (sectionError) throw sectionError;
 
-      // Fetch attribute definitions for this template
       const { data: attrDefs, error: attrError } = await supabase
         .from('section_attribute_definitions')
         .select('*')
@@ -441,10 +573,8 @@ export default function LinesPage() {
         .order('sequence_order');
       if (attrError) throw attrError;
 
-      // Create attribute values for each definition with user-provided values
       if (attrDefs && attrDefs.length > 0) {
         const attrValuesData = attrDefs.map((def) => {
-          // Generate key to match form field: attr_{templateId}_{attributeId}
           const fieldKey = `attr_${template.id}_${def.id}`;
           const providedValue = attributeValues[fieldKey];
           return {
@@ -460,9 +590,8 @@ export default function LinesPage() {
     }
   };
 
-  // Positioning algorithm: reorder all machines in the line based on default_line_order
+  // Positioning algorithm: reorder all machines in the line based on category sequence order
   const reorderByDefaultLineOrder = async (lineId: string) => {
-    // Fetch all machines in this line
     const { data: lineMachines, error: fetchError } = await supabase
       .from('machines')
       .select('id, machine_type, sequence_order')
@@ -471,13 +600,33 @@ export default function LinesPage() {
     if (fetchError) throw fetchError;
     if (!lineMachines || lineMachines.length === 0) return;
 
-    // Build a map of machine_type -> default_line_order
-    const typeOrderMap = new Map<string, number>();
-    machineTypesData?.forEach(t => {
-      typeOrderMap.set(t.name, t.default_line_order ?? 0);
-    });
+    // Get the line's category
+    const { data: lineData } = await supabase
+      .from('production_lines')
+      .select('line_category_id')
+      .eq('id', lineId)
+      .single();
+    
+    const lineCategoryId = lineData?.line_category_id;
 
-    // Sort machines by their type's default_line_order, then by current sequence_order as tiebreaker
+    // Build order map from category assignments
+    const typeOrderMap = new Map<string, number>();
+    if (lineCategoryId && allCategoryAssignments) {
+      allCategoryAssignments
+        .filter(a => a.line_category_id === lineCategoryId)
+        .forEach(a => {
+          const name = (a.machine_types as any)?.name;
+          if (name) typeOrderMap.set(name, a.sequence_order ?? 999);
+        });
+    }
+    
+    // Fallback to machine_types.default_line_order if no category
+    if (typeOrderMap.size === 0) {
+      machineTypesData?.forEach(t => {
+        typeOrderMap.set(t.name, t.default_line_order ?? 0);
+      });
+    }
+
     const sorted = [...lineMachines].sort((a, b) => {
       const orderA = typeOrderMap.get(a.machine_type || '') ?? 999;
       const orderB = typeOrderMap.get(b.machine_type || '') ?? 999;
@@ -485,7 +634,6 @@ export default function LinesPage() {
       return (a.sequence_order ?? 0) - (b.sequence_order ?? 0);
     });
 
-    // Update sequence_order = 0, 1, 2...
     for (let i = 0; i < sorted.length; i++) {
       if (sorted[i].sequence_order !== i) {
         const { error } = await supabase
@@ -500,18 +648,16 @@ export default function LinesPage() {
   // Machine mutations
   const createMachineMutation = useMutation({
     mutationFn: async (values: MachineForm) => {
-      // Extract base machine fields
       const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url, sequences, ...attributeValues } = values;
       
-      // Get default_line_order from template
-      const typeData = machineTypesData?.find(t => t.name === machine_type);
-      const defaultOrder = typeData?.default_line_order ?? sequence_order;
+      // Get sequence order from category position
+      const categoryOrder = getCategorySequenceOrder(machine_type, selectedLineCategoryId);
+      const effectiveOrder = categoryOrder !== 999 ? categoryOrder : sequence_order;
 
-      // Create machine with default_line_order as initial sequence_order
       const { data: newMachine, error } = await supabase.from('machines').insert({
         name,
         machine_type,
-        sequence_order: defaultOrder,
+        sequence_order: effectiveOrder,
         image_url,
         serial_number,
         nameplate_image_url,
@@ -520,10 +666,8 @@ export default function LinesPage() {
       }).select().single();
       if (error) throw error;
 
-      // Reorder all machines in the line based on default_line_order
       await reorderByDefaultLineOrder(selectedLineId!);
 
-      // Apply template sections if machine type is set
       if (machine_type) {
         await applyTemplateToMachine(newMachine.id, machine_type, attributeValues);
       }
@@ -541,7 +685,6 @@ export default function LinesPage() {
 
   const updateMachineMutation = useMutation({
     mutationFn: async ({ id, sequences, ...values }: MachineForm & { id: string }) => {
-      // Filter out template attribute values from the update
       const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url } = values;
       const { error } = await supabase.from('machines').update({
         name,
@@ -568,11 +711,7 @@ export default function LinesPage() {
   // Reorder machines mutation
   const reorderMachinesMutation = useMutation({
     mutationFn: async (orderedIds: string[]) => {
-      const updates = orderedIds.map((id, index) => ({
-        id,
-        sequence_order: index,
-      }));
-      
+      const updates = orderedIds.map((id, index) => ({ id, sequence_order: index }));
       for (const update of updates) {
         const { error } = await supabase
           .from('machines')
@@ -645,7 +784,6 @@ export default function LinesPage() {
   };
 
   const onMachineSubmit = (values: MachineForm) => {
-    // Validate required template attributes
     const missingRequired: string[] = [];
     templateAttributes.filter(attr => attr.is_required).forEach(attr => {
       const fieldKey = `attr_${attr.template_id}_${attr.id}`;
@@ -702,6 +840,27 @@ export default function LinesPage() {
       machineForm.reset({ name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] });
     }
     setIsMachineDialogOpen(true);
+  };
+
+  // Toggle checklist items
+  const toggleDuplicateItem = (id: string) => {
+    setDuplicateChecklist(prev => prev.map(item =>
+      item.id === id ? { ...item, selected: !item.selected } : item
+    ));
+  };
+
+  const toggleTemplateItem = (id: string) => {
+    setTemplateChecklist(prev => prev.map(item =>
+      item.id === id ? { ...item, selected: !item.selected } : item
+    ));
+  };
+
+  const toggleAllDuplicate = (selected: boolean) => {
+    setDuplicateChecklist(prev => prev.map(item => ({ ...item, selected })));
+  };
+
+  const toggleAllTemplate = (selected: boolean) => {
+    setTemplateChecklist(prev => prev.map(item => ({ ...item, selected })));
   };
 
   return (
@@ -762,7 +921,7 @@ export default function LinesPage() {
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); duplicateLineMutation.mutate(line); }}>
+                    <Button variant="ghost" size="icon" title="Duplicar línea" onClick={(e) => { e.stopPropagation(); openDuplicateDialog(line); }}>
                       <Copy className="w-4 h-4" />
                     </Button>
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openLineDialog(line); }}>
@@ -1024,6 +1183,27 @@ export default function LinesPage() {
                     </FormItem>
                   )}
                 />
+
+                {/* Show category position info */}
+                {!editingMachine && watchedMachineType && selectedLineCategoryId && (() => {
+                  const catOrder = getCategorySequenceOrder(watchedMachineType, selectedLineCategoryId);
+                  const catName = lineCategories?.find(c => c.id === selectedLineCategoryId)?.name;
+                  if (catOrder !== 999) {
+                    return (
+                      <div className="rounded-md bg-muted/50 p-3 text-sm">
+                        <span className="text-muted-foreground">Posición en </span>
+                        <Badge variant="outline" className="text-xs">{catName}</Badge>
+                        <span className="text-muted-foreground">: </span>
+                        <span className="font-medium">{catOrder + 1}</span>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          El orden se calcula automáticamente según la categoría de línea
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 <FormField
                   control={machineForm.control}
                   name="sequence_order"
@@ -1166,7 +1346,6 @@ export default function LinesPage() {
                       </p>
                     </div>
                     
-                    {/* Group attributes by section */}
                     {(() => {
                       const sections = [...new Set(templateAttributes.map(a => a.section_name))];
                       return sections.map(sectionName => {
@@ -1255,6 +1434,182 @@ export default function LinesPage() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate Line Dialog with Checklist */}
+      <Dialog open={isDuplicateDialogOpen} onOpenChange={setIsDuplicateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5" />
+              Duplicar Línea
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nombre de la nueva línea</label>
+              <Input
+                value={duplicateNewName}
+                onChange={(e) => setDuplicateNewName(e.target.value)}
+                placeholder="Nombre de la copia..."
+              />
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium">Equipos a copiar</label>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => toggleAllDuplicate(true)}>
+                    Todos
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => toggleAllDuplicate(false)}>
+                    Ninguno
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                {duplicateChecklist.map((item, idx) => (
+                  <label
+                    key={item.id}
+                    className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-md border cursor-pointer transition-colors',
+                      item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50'
+                    )}
+                  >
+                    <Checkbox
+                      checked={item.selected}
+                      onCheckedChange={() => toggleDuplicateItem(item.id)}
+                    />
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        {item.machine_type && (
+                          <p className="text-xs text-muted-foreground">{item.machine_type}</p>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+                {duplicateChecklist.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Esta línea no tiene equipos.
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {duplicateChecklist.filter(i => i.selected).length} de {duplicateChecklist.length} seleccionados
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsDuplicateDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!duplicateNewName.trim()) {
+                    toast({ title: 'Error', description: 'Ingresa un nombre para la nueva línea', variant: 'destructive' });
+                    return;
+                  }
+                  const selectedIds = duplicateChecklist.filter(i => i.selected).map(i => i.id);
+                  duplicateLineMutation.mutate({
+                    sourceLine: duplicateSourceLine,
+                    selectedMachineIds: selectedIds,
+                    newName: duplicateNewName,
+                  });
+                }}
+                disabled={duplicateLineMutation.isPending}
+              >
+                {duplicateLineMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Duplicar ({duplicateChecklist.filter(i => i.selected).length} equipos)
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create from Template Dialog */}
+      <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5" />
+              Crear equipos desde plantilla
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              La línea fue creada con una categoría. Selecciona qué tipos de equipo deseas agregar automáticamente:
+            </p>
+
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium">Tipos de equipo</label>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => toggleAllTemplate(true)}>
+                    Todos
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => toggleAllTemplate(false)}>
+                    Ninguno
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                {templateChecklist.map((item, idx) => (
+                  <label
+                    key={item.id}
+                    className={cn(
+                      'flex items-center gap-3 p-2.5 rounded-md border cursor-pointer transition-colors',
+                      item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50'
+                    )}
+                  >
+                    <Checkbox
+                      checked={item.selected}
+                      onCheckedChange={() => toggleTemplateItem(item.id)}
+                    />
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span className="text-sm font-medium">{item.name}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {templateChecklist.filter(i => i.selected).length} de {templateChecklist.length} seleccionados
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsTemplateDialogOpen(false)}>
+                Omitir
+              </Button>
+              <Button
+                onClick={() => {
+                  const selected = templateChecklist.filter(i => i.selected);
+                  if (selected.length === 0) {
+                    setIsTemplateDialogOpen(false);
+                    return;
+                  }
+                  createFromTemplateMutation.mutate({
+                    lineId: duplicateSourceLine.id,
+                    selectedTypes: selected,
+                  });
+                }}
+                disabled={createFromTemplateMutation.isPending || templateChecklist.filter(i => i.selected).length === 0}
+              >
+                {createFromTemplateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Crear {templateChecklist.filter(i => i.selected).length} equipos
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
