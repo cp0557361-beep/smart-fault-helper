@@ -75,6 +75,10 @@ interface MachineChecklistItem {
   // For template-based creation
   isFromTemplate?: boolean;
   templateSequenceOrder?: number;
+  // Available sequences from the machine type
+  availableSequences?: string[];
+  // Selected sequence for this instance
+  selectedSequence?: string;
 }
 
 // Sortable machine item component
@@ -124,6 +128,7 @@ export default function LinesPage() {
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [editingAttributesMachine, setEditingAttributesMachine] = useState<{ id: string; name: string } | null>(null);
   const [machineSequences, setMachineSequences] = useState<string[]>([]);
+  const [selectedSequence, setSelectedSequence] = useState<string>('');
 
   // Duplication/template checklist state
   const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
@@ -267,14 +272,39 @@ export default function LinesPage() {
   });
 
   // Auto-populate sequences when machine type changes (always from template)
+  // Available sequences from the machine type template
+  const availableSequences = (() => {
+    if (!watchedMachineType) return [];
+    const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
+    return selectedType?.sequences || [];
+  })();
+
   useEffect(() => {
     if (!watchedMachineType) {
       setMachineSequences([]);
+      setSelectedSequence('');
       return;
     }
     
     const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
-    setMachineSequences(selectedType?.sequences || []);
+    const seqs = selectedType?.sequences || [];
+    if (seqs.length <= 1) {
+      // 0 or 1 sequence: auto-assign
+      setMachineSequences(seqs);
+      setSelectedSequence(seqs[0] || '');
+    } else {
+      // Multiple sequences: user must pick one
+      // If editing and machine already has a sequence, pre-select it
+      const currentSeqs = machineForm.getValues('sequences') || [];
+      const preselected = currentSeqs.length > 0 ? currentSeqs[0] : '';
+      if (preselected && seqs.includes(preselected)) {
+        setSelectedSequence(preselected);
+        setMachineSequences([preselected]);
+      } else {
+        setSelectedSequence('');
+        setMachineSequences([]);
+      }
+    }
   }, [watchedMachineType, machineTypesData]);
 
   const { data: lines, isLoading: linesLoading } = useQuery({
@@ -360,15 +390,21 @@ export default function LinesPage() {
           .sort((a, b) => (a.sequence_order ?? 0) - (b.sequence_order ?? 0));
         
         if (categoryTypes.length > 0) {
-          const checklist: MachineChecklistItem[] = categoryTypes.map((ct, idx) => ({
-            id: ct.machine_type_id,
-            name: (ct.machine_types as any)?.name || 'Desconocido',
-            machine_type: (ct.machine_types as any)?.name || null,
-            sequence_order: ct.sequence_order ?? idx,
-            selected: true,
-            isFromTemplate: true,
-            templateSequenceOrder: ct.sequence_order ?? idx,
-          }));
+          const checklist: MachineChecklistItem[] = categoryTypes.map((ct, idx) => {
+            const typeData = machineTypesData?.find(t => t.id === ct.machine_type_id);
+            const seqs = (ct.machine_types as any)?.sequences || [];
+            return {
+              id: ct.machine_type_id,
+              name: (ct.machine_types as any)?.name || 'Desconocido',
+              machine_type: (ct.machine_types as any)?.name || null,
+              sequence_order: ct.sequence_order ?? idx,
+              selected: true,
+              isFromTemplate: true,
+              templateSequenceOrder: ct.sequence_order ?? idx,
+              availableSequences: seqs,
+              selectedSequence: seqs.length === 1 ? seqs[0] : '',
+            };
+          });
           setTemplateChecklist(checklist);
           setDuplicateSourceLine(newLine);
           setIsTemplateDialogOpen(true);
@@ -516,12 +552,15 @@ export default function LinesPage() {
       for (let i = 0; i < sorted.length; i++) {
         const item = sorted[i];
         const typeData = machineTypesData?.find(t => t.name === item.machine_type);
+        const assignedSequence = item.selectedSequence 
+          ? [item.selectedSequence] 
+          : (typeData?.sequences?.length === 1 ? typeData.sequences : []);
         
         const { data: newMachine, error } = await supabase.from('machines').insert({
           name: item.name,
           machine_type: item.machine_type,
           sequence_order: i,
-          sequences: typeData?.sequences || [],
+          sequences: assignedSequence,
           production_line_id: lineId,
         }).select().single();
         if (error) throw error;
@@ -679,6 +718,7 @@ export default function LinesPage() {
       machineForm.reset();
       setTemplateAttributes([]);
       setMachineSequences([]);
+      setSelectedSequence('');
     },
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
@@ -784,6 +824,16 @@ export default function LinesPage() {
   };
 
   const onMachineSubmit = (values: MachineForm) => {
+    // Validate sequence selection for multi-sequence types
+    if (availableSequences.length > 1 && !selectedSequence) {
+      toast({
+        title: 'Secuencia requerida',
+        description: 'Selecciona una secuencia para este equipo',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const missingRequired: string[] = [];
     templateAttributes.filter(attr => attr.is_required).forEach(attr => {
       const fieldKey = `attr_${attr.template_id}_${attr.id}`;
@@ -824,7 +874,9 @@ export default function LinesPage() {
     setTemplateAttributes([]);
     if (machine) {
       setEditingMachine(machine);
-      setMachineSequences(machine.sequences || []);
+      const seqs = machine.sequences || [];
+      setMachineSequences(seqs);
+      setSelectedSequence(seqs.length > 0 ? seqs[0] : '');
       machineForm.reset({
         name: machine.name,
         machine_type: machine.machine_type || '',
@@ -832,11 +884,12 @@ export default function LinesPage() {
         image_url: machine.image_url || '',
         serial_number: machine.serial_number || '',
         nameplate_image_url: machine.nameplate_image_url || '',
-        sequences: machine.sequences || [],
+        sequences: seqs,
       });
     } else {
       setEditingMachine(null);
       setMachineSequences([]);
+      setSelectedSequence('');
       machineForm.reset({ name: '', machine_type: '', sequence_order: 0, serial_number: '', nameplate_image_url: '', sequences: [] });
     }
     setIsMachineDialogOpen(true);
@@ -861,6 +914,18 @@ export default function LinesPage() {
 
   const toggleAllTemplate = (selected: boolean) => {
     setTemplateChecklist(prev => prev.map(item => ({ ...item, selected })));
+  };
+
+  const updateTemplateItemSequence = (id: string, sequence: string) => {
+    setTemplateChecklist(prev => prev.map(item =>
+      item.id === id ? { ...item, selectedSequence: sequence } : item
+    ));
+  };
+
+  const updateDuplicateItemSequence = (id: string, sequence: string) => {
+    setDuplicateChecklist(prev => prev.map(item =>
+      item.id === id ? { ...item, selectedSequence: sequence } : item
+    ));
   };
 
   return (
@@ -1311,19 +1376,39 @@ export default function LinesPage() {
                   )}
                 />
 
-                {/* Sequences display (read-only, from template) */}
-                {machineSequences.length > 0 && (
+                {/* Sequence selector / display */}
+                {availableSequences.length === 1 && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Secuencias (desde plantilla)</label>
+                    <label className="text-sm font-medium">Secuencia (desde plantilla)</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {machineSequences.map((seq) => (
-                        <Badge key={seq} variant="secondary">
-                          {seq}
-                        </Badge>
-                      ))}
+                      <Badge variant="secondary">{availableSequences[0]}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Las secuencias se definen en la plantilla del tipo de equipo
+                      Secuencia única, asignada automáticamente
+                    </p>
+                  </div>
+                )}
+                {availableSequences.length > 1 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Secuencia asignada <span className="text-destructive">*</span></label>
+                    <Select
+                      value={selectedSequence}
+                      onValueChange={(val) => {
+                        setSelectedSequence(val);
+                        setMachineSequences([val]);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccionar secuencia..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSequences.map((seq) => (
+                          <SelectItem key={seq} value={seq}>{seq}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Este tipo de equipo tiene {availableSequences.length} secuencias disponibles. Selecciona cuál corresponde a esta instancia.
                     </p>
                   </div>
                 )}
@@ -1562,24 +1647,46 @@ export default function LinesPage() {
               </div>
               <div className="space-y-1 max-h-[300px] overflow-y-auto">
                 {templateChecklist.map((item, idx) => (
-                  <label
+                  <div
                     key={item.id}
                     className={cn(
-                      'flex items-center gap-3 p-2.5 rounded-md border cursor-pointer transition-colors',
+                      'p-2.5 rounded-md border transition-colors',
                       item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50'
                     )}
                   >
-                    <Checkbox
-                      checked={item.selected}
-                      onCheckedChange={() => toggleTemplateItem(item.id)}
-                    />
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="text-sm font-medium">{item.name}</span>
-                    </div>
-                  </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <Checkbox
+                        checked={item.selected}
+                        onCheckedChange={() => toggleTemplateItem(item.id)}
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm font-medium">{item.name}</span>
+                        {item.availableSequences && item.availableSequences.length === 1 && (
+                          <Badge variant="outline" className="text-xs">{item.availableSequences[0]}</Badge>
+                        )}
+                      </div>
+                    </label>
+                    {item.selected && item.availableSequences && item.availableSequences.length > 1 && (
+                      <div className="mt-2 ml-8">
+                        <Select
+                          value={item.selectedSequence || ''}
+                          onValueChange={(val) => updateTemplateItemSequence(item.id, val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="Seleccionar secuencia..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {item.availableSequences.map((seq) => (
+                              <SelectItem key={seq} value={seq}>{seq}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
@@ -1596,6 +1703,18 @@ export default function LinesPage() {
                   const selected = templateChecklist.filter(i => i.selected);
                   if (selected.length === 0) {
                     setIsTemplateDialogOpen(false);
+                    return;
+                  }
+                  // Validate sequence selection for multi-sequence types
+                  const missingSeq = selected.filter(i => 
+                    i.availableSequences && i.availableSequences.length > 1 && !i.selectedSequence
+                  );
+                  if (missingSeq.length > 0) {
+                    toast({
+                      title: 'Secuencias requeridas',
+                      description: `Selecciona una secuencia para: ${missingSeq.map(i => i.name).join(', ')}`,
+                      variant: 'destructive',
+                    });
                     return;
                   }
                   createFromTemplateMutation.mutate({
