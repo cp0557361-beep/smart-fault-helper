@@ -855,7 +855,8 @@ export default function LinesPage() {
     if (editingMachine) {
       updateMachineMutation.mutate({ id: editingMachine.id, ...values });
     } else {
-      createMachineMutation.mutate(values);
+      // Auto-set name from machine type when creating
+      createMachineMutation.mutate({ ...values, name: values.machine_type || values.name });
     }
   };
 
@@ -1205,23 +1206,27 @@ export default function LinesPage() {
             <form onSubmit={machineForm.handleSubmit(onMachineSubmit)} className="flex flex-col flex-1 min-h-0">
               <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y pr-2">
                 <div className="space-y-4 pb-4">
-                <FormField
-                  control={machineForm.control}
-                  name="name"
-                  rules={{ required: 'El nombre es requerido' }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nombre</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Ej: Impresora DEK" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Name is auto-derived from machine type for new machines */}
+                {editingMachine && (
+                  <FormField
+                    control={machineForm.control}
+                    name="name"
+                    rules={{ required: 'El nombre es requerido' }}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nombre</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ej: Impresora DEK" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={machineForm.control}
                   name="machine_type"
+                  rules={{ required: 'El tipo de equipo es requerido' }}
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tipo de Equipo</FormLabel>
@@ -1269,19 +1274,16 @@ export default function LinesPage() {
                   return null;
                 })()}
 
-                <FormField
-                  control={machineForm.control}
-                  name="sequence_order"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Orden en Línea</FormLabel>
-                      <FormControl>
-                        <Input type="number" min={0} {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 0)} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* sequence_order is auto-calculated, shown read-only for editing */}
+                {editingMachine && (
+                  <div className="rounded-md bg-muted/50 p-3 text-sm">
+                    <span className="text-muted-foreground">Orden en línea: </span>
+                    <span className="font-medium">{machineForm.getValues('sequence_order')}</span>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Este valor se asigna automáticamente según la categoría de línea
+                    </p>
+                  </div>
+                )}
                 <FormField
                   control={machineForm.control}
                   name="image_url"
