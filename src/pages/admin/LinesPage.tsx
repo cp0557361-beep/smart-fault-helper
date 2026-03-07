@@ -1838,6 +1838,24 @@ export default function LinesPage() {
                     });
                     return;
                   }
+                  // Validate no duplicate sequences within same machine type
+                  const seqByType = new Map<string, string[]>();
+                  for (const item of selected) {
+                    const typeName = item.machine_type || '';
+                    if (!seqByType.has(typeName)) seqByType.set(typeName, []);
+                    if (item.selectedSequence) seqByType.get(typeName)!.push(item.selectedSequence);
+                  }
+                  for (const [typeName, seqs] of seqByType) {
+                    const unique = new Set(seqs);
+                    if (unique.size < seqs.length) {
+                      toast({
+                        title: 'Secuencias duplicadas',
+                        description: `${typeName} tiene secuencias repetidas. Cada instancia debe tener una secuencia única.`,
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
+                  }
                   createFromTemplateMutation.mutate({
                     lineId: duplicateSourceLine.id,
                     selectedTypes: selected,
