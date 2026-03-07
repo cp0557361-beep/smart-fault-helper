@@ -276,8 +276,8 @@ export default function LinesPage() {
   });
 
   // Auto-populate sequences when machine type changes (always from template)
-  // Available sequences from the machine type template
-  const availableSequences = (() => {
+  // All sequences from the machine type template (unfiltered - machines query not yet available here)
+  const allTypeSequences = (() => {
     if (!watchedMachineType) return [];
     const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
     return selectedType?.sequences || [];
@@ -290,8 +290,7 @@ export default function LinesPage() {
       return;
     }
     
-    const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
-    const seqs = selectedType?.sequences || [];
+    const seqs = allTypeSequences;
     if (seqs.length <= 1) {
       // 0 or 1 sequence: auto-assign
       setMachineSequences(seqs);
@@ -309,7 +308,7 @@ export default function LinesPage() {
         setMachineSequences([]);
       }
     }
-  }, [watchedMachineType, machineTypesData]);
+  }, [watchedMachineType, machineTypesData, allTypeSequences]);
 
   const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
@@ -335,6 +334,18 @@ export default function LinesPage() {
       return data;
     },
   });
+
+  // Available sequences filtered by line-wide usage (unique per line)
+  const availableSequences = (() => {
+    if (allTypeSequences.length <= 1) return allTypeSequences;
+    if (!machines) return allTypeSequences;
+    const usedSeqs = new Set(
+      machines
+        .filter(m => editingMachine ? m.id !== editingMachine.id : true)
+        .flatMap(m => m.sequences || [])
+    );
+    return allTypeSequences.filter(s => !usedSeqs.has(s));
+  })();
 
   // Get the selected line's category to filter machine types
   const selectedLine = lines?.find(l => l.id === selectedLineId);
@@ -933,22 +944,17 @@ export default function LinesPage() {
     const typeId = sourceItem.templateTypeId || sourceItem.id;
     const typeName = sourceItem.machine_type || sourceItem.name;
     
-    // Count existing instances of this type
-    const existingOfType = templateChecklist.filter(i => 
-      (i.templateTypeId || i.id) === typeId || i.machine_type === typeName
-    );
-    
     // Get all available sequences for this type
     const allSeqs = sourceItem.availableSequences || [];
     
-    // Find already-used sequences for this type
+    // Find already-used sequences across ALL types in the line (line-wide uniqueness)
     const usedSeqs = new Set(
-      existingOfType
-        .filter(i => i.selectedSequence)
+      templateChecklist
+        .filter(i => i.selected && i.selectedSequence)
         .map(i => i.selectedSequence!)
     );
     
-    // Check if there are remaining sequences
+    // Check if there are remaining sequences for this type
     const remainingSeqs = allSeqs.filter(s => !usedSeqs.has(s));
     
     if (allSeqs.length > 0 && remainingSeqs.length === 0) {
@@ -992,17 +998,15 @@ export default function LinesPage() {
     setTemplateChecklist(prev => prev.filter(i => i.id !== id));
   };
 
-  // Get available (unused) sequences for a template item
+  // Get available (unused) sequences for a template item — unique across ALL types in the line
   const getAvailableSequencesForItem = (item: MachineChecklistItem): string[] => {
     const allSeqs = item.availableSequences || [];
     if (allSeqs.length <= 1) return allSeqs;
     
-    const typeId = item.templateTypeId || item.id;
-    const typeName = item.machine_type;
-    
+    // Collect ALL sequences used by other selected items (regardless of type)
     const usedSeqs = new Set(
       templateChecklist
-        .filter(i => i.id !== item.id && ((i.templateTypeId || i.id) === typeId || i.machine_type === typeName) && i.selectedSequence)
+        .filter(i => i.id !== item.id && i.selected && i.selectedSequence)
         .map(i => i.selectedSequence!)
     );
     
@@ -1838,23 +1842,18 @@ export default function LinesPage() {
                     });
                     return;
                   }
-                  // Validate no duplicate sequences within same machine type
-                  const seqByType = new Map<string, string[]>();
-                  for (const item of selected) {
-                    const typeName = item.machine_type || '';
-                    if (!seqByType.has(typeName)) seqByType.set(typeName, []);
-                    if (item.selectedSequence) seqByType.get(typeName)!.push(item.selectedSequence);
-                  }
-                  for (const [typeName, seqs] of seqByType) {
-                    const unique = new Set(seqs);
-                    if (unique.size < seqs.length) {
-                      toast({
-                        title: 'Secuencias duplicadas',
-                        description: `${typeName} tiene secuencias repetidas. Cada instancia debe tener una secuencia única.`,
-                        variant: 'destructive',
-                      });
-                      return;
-                    }
+                  // Validate no duplicate sequences across ALL machine types in the line
+                  const allSelectedSeqs = selected
+                    .filter(i => i.selectedSequence)
+                    .map(i => i.selectedSequence!);
+                  const uniqueSeqs = new Set(allSelectedSeqs);
+                  if (uniqueSeqs.size < allSelectedSeqs.length) {
+                    toast({
+                      title: 'Secuencias duplicadas',
+                      description: 'Cada secuencia debe ser única en toda la línea, sin importar el tipo de equipo.',
+                      variant: 'destructive',
+                    });
+                    return;
                   }
                   createFromTemplateMutation.mutate({
                     lineId: duplicateSourceLine.id,
