@@ -79,6 +79,10 @@ interface MachineChecklistItem {
   availableSequences?: string[];
   // Selected sequence for this instance
   selectedSequence?: string;
+  // Whether this is an extra added instance (not from original template)
+  isExtraInstance?: boolean;
+  // Reference to the original template machine_type_id for grouping
+  templateTypeId?: string;
 }
 
 // Sortable machine item component
