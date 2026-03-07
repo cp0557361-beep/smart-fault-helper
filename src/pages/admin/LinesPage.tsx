@@ -336,6 +336,18 @@ export default function LinesPage() {
     },
   });
 
+  // Available sequences filtered by line-wide usage (unique per line)
+  const availableSequences = (() => {
+    if (allTypeSequences.length <= 1) return allTypeSequences;
+    if (!machines) return allTypeSequences;
+    const usedSeqs = new Set(
+      machines
+        .filter(m => editingMachine ? m.id !== editingMachine.id : true)
+        .flatMap(m => m.sequences || [])
+    );
+    return allTypeSequences.filter(s => !usedSeqs.has(s));
+  })();
+
   // Get the selected line's category to filter machine types
   const selectedLine = lines?.find(l => l.id === selectedLineId);
   const selectedLineCategoryId = (selectedLine as any)?.line_category_id;
