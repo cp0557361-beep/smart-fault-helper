@@ -1762,7 +1762,7 @@ export default function LinesPage() {
                         </label>
                         <div className="flex gap-1">
                           {/* Add instance button - only on items with multiple sequences */}
-                          {hasMultipleSeqs && !item.isExtraInstance && (
+                          {hasMultipleSeqs && (
                             <Button
                               type="button"
                               variant="ghost"
