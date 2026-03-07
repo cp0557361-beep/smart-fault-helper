@@ -1003,17 +1003,15 @@ export default function LinesPage() {
     setTemplateChecklist(prev => prev.filter(i => i.id !== id));
   };
 
-  // Get available (unused) sequences for a template item
+  // Get available (unused) sequences for a template item — unique across ALL types in the line
   const getAvailableSequencesForItem = (item: MachineChecklistItem): string[] => {
     const allSeqs = item.availableSequences || [];
     if (allSeqs.length <= 1) return allSeqs;
     
-    const typeId = item.templateTypeId || item.id;
-    const typeName = item.machine_type;
-    
+    // Collect ALL sequences used by other selected items (regardless of type)
     const usedSeqs = new Set(
       templateChecklist
-        .filter(i => i.id !== item.id && ((i.templateTypeId || i.id) === typeId || i.machine_type === typeName) && i.selectedSequence)
+        .filter(i => i.id !== item.id && i.selected && i.selectedSequence)
         .map(i => i.selectedSequence!)
     );
     
