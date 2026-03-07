@@ -79,6 +79,10 @@ interface MachineChecklistItem {
   availableSequences?: string[];
   // Selected sequence for this instance
   selectedSequence?: string;
+  // Whether this is an extra added instance (not from original template)
+  isExtraInstance?: boolean;
+  // Reference to the original template machine_type_id for grouping
+  templateTypeId?: string;
 }
 
 // Sortable machine item component
@@ -394,7 +398,7 @@ export default function LinesPage() {
             const typeData = machineTypesData?.find(t => t.id === ct.machine_type_id);
             const seqs = (ct.machine_types as any)?.sequences || [];
             return {
-              id: ct.machine_type_id,
+              id: `template-${ct.machine_type_id}`,
               name: (ct.machine_types as any)?.name || 'Desconocido',
               machine_type: (ct.machine_types as any)?.name || null,
               sequence_order: ct.sequence_order ?? idx,
@@ -403,6 +407,7 @@ export default function LinesPage() {
               templateSequenceOrder: ct.sequence_order ?? idx,
               availableSequences: seqs,
               selectedSequence: seqs.length === 1 ? seqs[0] : '',
+              templateTypeId: ct.machine_type_id,
             };
           });
           setTemplateChecklist(checklist);
@@ -923,10 +928,85 @@ export default function LinesPage() {
     ));
   };
 
-  const updateDuplicateItemSequence = (id: string, sequence: string) => {
-    setDuplicateChecklist(prev => prev.map(item =>
-      item.id === id ? { ...item, selectedSequence: sequence } : item
-    ));
+  // Add extra instance of a machine type in template checklist
+  const addTemplateInstance = (sourceItem: MachineChecklistItem) => {
+    const typeId = sourceItem.templateTypeId || sourceItem.id;
+    const typeName = sourceItem.machine_type || sourceItem.name;
+    
+    // Count existing instances of this type
+    const existingOfType = templateChecklist.filter(i => 
+      (i.templateTypeId || i.id) === typeId || i.machine_type === typeName
+    );
+    
+    // Get all available sequences for this type
+    const allSeqs = sourceItem.availableSequences || [];
+    
+    // Find already-used sequences for this type
+    const usedSeqs = new Set(
+      existingOfType
+        .filter(i => i.selectedSequence)
+        .map(i => i.selectedSequence!)
+    );
+    
+    // Check if there are remaining sequences
+    const remainingSeqs = allSeqs.filter(s => !usedSeqs.has(s));
+    
+    if (allSeqs.length > 0 && remainingSeqs.length === 0) {
+      toast({
+        title: 'Sin secuencias disponibles',
+        description: `Todas las secuencias de ${typeName} ya están asignadas`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const newId = `extra-${typeId}-${Date.now()}`;
+    const newItem: MachineChecklistItem = {
+      id: newId,
+      name: typeName,
+      machine_type: typeName,
+      sequence_order: sourceItem.sequence_order,
+      selected: true,
+      isFromTemplate: true,
+      templateSequenceOrder: sourceItem.templateSequenceOrder,
+      availableSequences: allSeqs,
+      selectedSequence: remainingSeqs.length === 1 ? remainingSeqs[0] : '',
+      isExtraInstance: true,
+      templateTypeId: typeId,
+    };
+
+    // Insert right after the last instance of this type
+    setTemplateChecklist(prev => {
+      const lastIdx = prev.reduce((acc, item, idx) => {
+        if ((item.templateTypeId || item.id) === typeId || item.machine_type === typeName) return idx;
+        return acc;
+      }, -1);
+      const newList = [...prev];
+      newList.splice(lastIdx + 1, 0, newItem);
+      return newList;
+    });
+  };
+
+  // Remove an extra instance
+  const removeTemplateInstance = (id: string) => {
+    setTemplateChecklist(prev => prev.filter(i => i.id !== id));
+  };
+
+  // Get available (unused) sequences for a template item
+  const getAvailableSequencesForItem = (item: MachineChecklistItem): string[] => {
+    const allSeqs = item.availableSequences || [];
+    if (allSeqs.length <= 1) return allSeqs;
+    
+    const typeId = item.templateTypeId || item.id;
+    const typeName = item.machine_type;
+    
+    const usedSeqs = new Set(
+      templateChecklist
+        .filter(i => i.id !== item.id && ((i.templateTypeId || i.id) === typeId || i.machine_type === typeName) && i.selectedSequence)
+        .map(i => i.selectedSequence!)
+    );
+    
+    return allSeqs.filter(s => !usedSeqs.has(s) || s === item.selectedSequence);
   };
 
   return (
@@ -1647,49 +1727,88 @@ export default function LinesPage() {
                   </Button>
                 </div>
               </div>
-              <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                {templateChecklist.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      'p-2.5 rounded-md border transition-colors',
-                      item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50'
-                    )}
-                  >
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <Checkbox
-                        checked={item.selected}
-                        onCheckedChange={() => toggleTemplateItem(item.id)}
-                      />
-                      <div className="flex items-center gap-2 flex-1">
-                        <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
-                          {idx + 1}
-                        </span>
-                        <span className="text-sm font-medium">{item.name}</span>
-                        {item.availableSequences && item.availableSequences.length === 1 && (
-                          <Badge variant="outline" className="text-xs">{item.availableSequences[0]}</Badge>
-                        )}
+              <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                {templateChecklist.map((item, idx) => {
+                  const filteredSeqs = getAvailableSequencesForItem(item);
+                  const hasMultipleSeqs = (item.availableSequences?.length || 0) > 1;
+                  
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        'p-2.5 rounded-md border transition-colors',
+                        item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50',
+                        item.isExtraInstance && 'ml-4 border-dashed'
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-3 cursor-pointer flex-1">
+                          <Checkbox
+                            checked={item.selected}
+                            onCheckedChange={() => toggleTemplateItem(item.id)}
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="text-sm font-medium">{item.name}</span>
+                            {item.isExtraInstance && (
+                              <Badge variant="secondary" className="text-xs">extra</Badge>
+                            )}
+                            {item.availableSequences && item.availableSequences.length === 1 && (
+                              <Badge variant="outline" className="text-xs">{item.availableSequences[0]}</Badge>
+                            )}
+                          </div>
+                        </label>
+                        <div className="flex gap-1">
+                          {/* Add instance button - only on items with multiple sequences */}
+                          {hasMultipleSeqs && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title={`Agregar otra instancia de ${item.name}`}
+                              onClick={() => addTemplateInstance(item)}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {/* Remove extra instance */}
+                          {item.isExtraInstance && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              title="Eliminar instancia"
+                              onClick={() => removeTemplateInstance(item.id)}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </label>
-                    {item.selected && item.availableSequences && item.availableSequences.length > 1 && (
-                      <div className="mt-2 ml-8">
-                        <Select
-                          value={item.selectedSequence || ''}
-                          onValueChange={(val) => updateTemplateItemSequence(item.id, val)}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Seleccionar secuencia..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {item.availableSequences.map((seq) => (
-                              <SelectItem key={seq} value={seq}>{seq}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {item.selected && hasMultipleSeqs && (
+                        <div className="mt-2 ml-8">
+                          <Select
+                            value={item.selectedSequence || ''}
+                            onValueChange={(val) => updateTemplateItemSequence(item.id, val)}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Seleccionar secuencia..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredSeqs.map((seq) => (
+                                <SelectItem key={seq} value={seq}>{seq}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 {templateChecklist.filter(i => i.selected).length} de {templateChecklist.length} seleccionados
@@ -1718,6 +1837,24 @@ export default function LinesPage() {
                       variant: 'destructive',
                     });
                     return;
+                  }
+                  // Validate no duplicate sequences within same machine type
+                  const seqByType = new Map<string, string[]>();
+                  for (const item of selected) {
+                    const typeName = item.machine_type || '';
+                    if (!seqByType.has(typeName)) seqByType.set(typeName, []);
+                    if (item.selectedSequence) seqByType.get(typeName)!.push(item.selectedSequence);
+                  }
+                  for (const [typeName, seqs] of seqByType) {
+                    const unique = new Set(seqs);
+                    if (unique.size < seqs.length) {
+                      toast({
+                        title: 'Secuencias duplicadas',
+                        description: `${typeName} tiene secuencias repetidas. Cada instancia debe tener una secuencia única.`,
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
                   }
                   createFromTemplateMutation.mutate({
                     lineId: duplicateSourceLine.id,
