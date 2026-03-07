@@ -1847,23 +1847,18 @@ export default function LinesPage() {
                     });
                     return;
                   }
-                  // Validate no duplicate sequences within same machine type
-                  const seqByType = new Map<string, string[]>();
-                  for (const item of selected) {
-                    const typeName = item.machine_type || '';
-                    if (!seqByType.has(typeName)) seqByType.set(typeName, []);
-                    if (item.selectedSequence) seqByType.get(typeName)!.push(item.selectedSequence);
-                  }
-                  for (const [typeName, seqs] of seqByType) {
-                    const unique = new Set(seqs);
-                    if (unique.size < seqs.length) {
-                      toast({
-                        title: 'Secuencias duplicadas',
-                        description: `${typeName} tiene secuencias repetidas. Cada instancia debe tener una secuencia única.`,
-                        variant: 'destructive',
-                      });
-                      return;
-                    }
+                  // Validate no duplicate sequences across ALL machine types in the line
+                  const allSelectedSeqs = selected
+                    .filter(i => i.selectedSequence)
+                    .map(i => i.selectedSequence!);
+                  const uniqueSeqs = new Set(allSelectedSeqs);
+                  if (uniqueSeqs.size < allSelectedSeqs.length) {
+                    toast({
+                      title: 'Secuencias duplicadas',
+                      description: 'Cada secuencia debe ser única en toda la línea, sin importar el tipo de equipo.',
+                      variant: 'destructive',
+                    });
+                    return;
                   }
                   createFromTemplateMutation.mutate({
                     lineId: duplicateSourceLine.id,
