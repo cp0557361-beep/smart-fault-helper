@@ -945,22 +945,17 @@ export default function LinesPage() {
     const typeId = sourceItem.templateTypeId || sourceItem.id;
     const typeName = sourceItem.machine_type || sourceItem.name;
     
-    // Count existing instances of this type
-    const existingOfType = templateChecklist.filter(i => 
-      (i.templateTypeId || i.id) === typeId || i.machine_type === typeName
-    );
-    
     // Get all available sequences for this type
     const allSeqs = sourceItem.availableSequences || [];
     
-    // Find already-used sequences for this type
+    // Find already-used sequences across ALL types in the line (line-wide uniqueness)
     const usedSeqs = new Set(
-      existingOfType
-        .filter(i => i.selectedSequence)
+      templateChecklist
+        .filter(i => i.selected && i.selectedSequence)
         .map(i => i.selectedSequence!)
     );
     
-    // Check if there are remaining sequences
+    // Check if there are remaining sequences for this type
     const remainingSeqs = allSeqs.filter(s => !usedSeqs.has(s));
     
     if (allSeqs.length > 0 && remainingSeqs.length === 0) {
