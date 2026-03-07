@@ -276,11 +276,22 @@ export default function LinesPage() {
   });
 
   // Auto-populate sequences when machine type changes (always from template)
-  // Available sequences from the machine type template
+  // Available sequences from the machine type template, filtered by line-wide usage
   const availableSequences = (() => {
     if (!watchedMachineType) return [];
     const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
-    return selectedType?.sequences || [];
+    const allSeqs = selectedType?.sequences || [];
+    
+    // Filter out sequences already used by OTHER machines in the same line
+    if (machines && allSeqs.length > 1) {
+      const usedSeqs = new Set(
+        machines
+          .filter(m => editingMachine ? m.id !== editingMachine.id : true)
+          .flatMap(m => m.sequences || [])
+      );
+      return allSeqs.filter(s => !usedSeqs.has(s));
+    }
+    return allSeqs;
   })();
 
   useEffect(() => {
