@@ -398,7 +398,7 @@ export default function LinesPage() {
             const typeData = machineTypesData?.find(t => t.id === ct.machine_type_id);
             const seqs = (ct.machine_types as any)?.sequences || [];
             return {
-              id: ct.machine_type_id,
+              id: `template-${ct.machine_type_id}`,
               name: (ct.machine_types as any)?.name || 'Desconocido',
               machine_type: (ct.machine_types as any)?.name || null,
               sequence_order: ct.sequence_order ?? idx,
@@ -407,6 +407,7 @@ export default function LinesPage() {
               templateSequenceOrder: ct.sequence_order ?? idx,
               availableSequences: seqs,
               selectedSequence: seqs.length === 1 ? seqs[0] : '',
+              templateTypeId: ct.machine_type_id,
             };
           });
           setTemplateChecklist(checklist);
