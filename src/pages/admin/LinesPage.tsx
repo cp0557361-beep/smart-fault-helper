@@ -1727,49 +1727,88 @@ export default function LinesPage() {
                   </Button>
                 </div>
               </div>
-              <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                {templateChecklist.map((item, idx) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      'p-2.5 rounded-md border transition-colors',
-                      item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50'
-                    )}
-                  >
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <Checkbox
-                        checked={item.selected}
-                        onCheckedChange={() => toggleTemplateItem(item.id)}
-                      />
-                      <div className="flex items-center gap-2 flex-1">
-                        <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
-                          {idx + 1}
-                        </span>
-                        <span className="text-sm font-medium">{item.name}</span>
-                        {item.availableSequences && item.availableSequences.length === 1 && (
-                          <Badge variant="outline" className="text-xs">{item.availableSequences[0]}</Badge>
-                        )}
+              <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                {templateChecklist.map((item, idx) => {
+                  const filteredSeqs = getAvailableSequencesForItem(item);
+                  const hasMultipleSeqs = (item.availableSequences?.length || 0) > 1;
+                  
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        'p-2.5 rounded-md border transition-colors',
+                        item.selected ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-secondary/50',
+                        item.isExtraInstance && 'ml-4 border-dashed'
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-3 cursor-pointer flex-1">
+                          <Checkbox
+                            checked={item.selected}
+                            onCheckedChange={() => toggleTemplateItem(item.id)}
+                          />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="w-5 h-5 flex items-center justify-center bg-muted rounded text-xs font-medium flex-shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="text-sm font-medium">{item.name}</span>
+                            {item.isExtraInstance && (
+                              <Badge variant="secondary" className="text-xs">extra</Badge>
+                            )}
+                            {item.availableSequences && item.availableSequences.length === 1 && (
+                              <Badge variant="outline" className="text-xs">{item.availableSequences[0]}</Badge>
+                            )}
+                          </div>
+                        </label>
+                        <div className="flex gap-1">
+                          {/* Add instance button - only on items with multiple sequences */}
+                          {hasMultipleSeqs && !item.isExtraInstance && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title={`Agregar otra instancia de ${item.name}`}
+                              onClick={() => addTemplateInstance(item)}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {/* Remove extra instance */}
+                          {item.isExtraInstance && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive hover:text-destructive"
+                              title="Eliminar instancia"
+                              onClick={() => removeTemplateInstance(item.id)}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </label>
-                    {item.selected && item.availableSequences && item.availableSequences.length > 1 && (
-                      <div className="mt-2 ml-8">
-                        <Select
-                          value={item.selectedSequence || ''}
-                          onValueChange={(val) => updateTemplateItemSequence(item.id, val)}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Seleccionar secuencia..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {item.availableSequences.map((seq) => (
-                              <SelectItem key={seq} value={seq}>{seq}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {item.selected && hasMultipleSeqs && (
+                        <div className="mt-2 ml-8">
+                          <Select
+                            value={item.selectedSequence || ''}
+                            onValueChange={(val) => updateTemplateItemSequence(item.id, val)}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Seleccionar secuencia..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredSeqs.map((seq) => (
+                                <SelectItem key={seq} value={seq}>{seq}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 {templateChecklist.filter(i => i.selected).length} de {templateChecklist.length} seleccionados
