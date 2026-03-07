@@ -290,8 +290,7 @@ export default function LinesPage() {
       return;
     }
     
-    const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
-    const seqs = selectedType?.sequences || [];
+    const seqs = allTypeSequences;
     if (seqs.length <= 1) {
       // 0 or 1 sequence: auto-assign
       setMachineSequences(seqs);
@@ -309,7 +308,7 @@ export default function LinesPage() {
         setMachineSequences([]);
       }
     }
-  }, [watchedMachineType, machineTypesData]);
+  }, [watchedMachineType, machineTypesData, allTypeSequences]);
 
   const { data: lines, isLoading: linesLoading } = useQuery({
     queryKey: ['admin-lines', selectedAreaId],
