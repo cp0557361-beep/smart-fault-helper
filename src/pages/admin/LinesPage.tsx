@@ -928,10 +928,85 @@ export default function LinesPage() {
     ));
   };
 
-  const updateDuplicateItemSequence = (id: string, sequence: string) => {
-    setDuplicateChecklist(prev => prev.map(item =>
-      item.id === id ? { ...item, selectedSequence: sequence } : item
-    ));
+  // Add extra instance of a machine type in template checklist
+  const addTemplateInstance = (sourceItem: MachineChecklistItem) => {
+    const typeId = sourceItem.templateTypeId || sourceItem.id;
+    const typeName = sourceItem.machine_type || sourceItem.name;
+    
+    // Count existing instances of this type
+    const existingOfType = templateChecklist.filter(i => 
+      (i.templateTypeId || i.id) === typeId || i.machine_type === typeName
+    );
+    
+    // Get all available sequences for this type
+    const allSeqs = sourceItem.availableSequences || [];
+    
+    // Find already-used sequences for this type
+    const usedSeqs = new Set(
+      existingOfType
+        .filter(i => i.selectedSequence)
+        .map(i => i.selectedSequence!)
+    );
+    
+    // Check if there are remaining sequences
+    const remainingSeqs = allSeqs.filter(s => !usedSeqs.has(s));
+    
+    if (allSeqs.length > 0 && remainingSeqs.length === 0) {
+      toast({
+        title: 'Sin secuencias disponibles',
+        description: `Todas las secuencias de ${typeName} ya están asignadas`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const newId = `extra-${typeId}-${Date.now()}`;
+    const newItem: MachineChecklistItem = {
+      id: newId,
+      name: typeName,
+      machine_type: typeName,
+      sequence_order: sourceItem.sequence_order,
+      selected: true,
+      isFromTemplate: true,
+      templateSequenceOrder: sourceItem.templateSequenceOrder,
+      availableSequences: allSeqs,
+      selectedSequence: remainingSeqs.length === 1 ? remainingSeqs[0] : '',
+      isExtraInstance: true,
+      templateTypeId: typeId,
+    };
+
+    // Insert right after the last instance of this type
+    setTemplateChecklist(prev => {
+      const lastIdx = prev.reduce((acc, item, idx) => {
+        if ((item.templateTypeId || item.id) === typeId || item.machine_type === typeName) return idx;
+        return acc;
+      }, -1);
+      const newList = [...prev];
+      newList.splice(lastIdx + 1, 0, newItem);
+      return newList;
+    });
+  };
+
+  // Remove an extra instance
+  const removeTemplateInstance = (id: string) => {
+    setTemplateChecklist(prev => prev.filter(i => i.id !== id));
+  };
+
+  // Get available (unused) sequences for a template item
+  const getAvailableSequencesForItem = (item: MachineChecklistItem): string[] => {
+    const allSeqs = item.availableSequences || [];
+    if (allSeqs.length <= 1) return allSeqs;
+    
+    const typeId = item.templateTypeId || item.id;
+    const typeName = item.machine_type;
+    
+    const usedSeqs = new Set(
+      templateChecklist
+        .filter(i => i.id !== item.id && ((i.templateTypeId || i.id) === typeId || i.machine_type === typeName) && i.selectedSequence)
+        .map(i => i.selectedSequence!)
+    );
+    
+    return allSeqs.filter(s => !usedSeqs.has(s) || s === item.selectedSequence);
   };
 
   return (
