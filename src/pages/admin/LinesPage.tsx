@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -277,11 +277,12 @@ export default function LinesPage() {
 
   // Auto-populate sequences when machine type changes (always from template)
   // All sequences from the machine type template (unfiltered - machines query not yet available here)
-  const allTypeSequences = (() => {
+  // Memoized: a fresh [] on every render would retrigger the effect below in a loop
+  const allTypeSequences = useMemo<string[]>(() => {
     if (!watchedMachineType) return [];
     const selectedType = machineTypesData?.find(t => t.name === watchedMachineType);
     return selectedType?.sequences || [];
-  })();
+  }, [watchedMachineType, machineTypesData]);
 
   useEffect(() => {
     if (!watchedMachineType) {
@@ -335,16 +336,17 @@ export default function LinesPage() {
     },
   });
 
-  // Available sequences filtered by line-wide usage (unique per line)
+  // Available sequences filtered by line-wide usage (unique per line, regardless of type).
+  // When editing, the machine's own current sequences always stay available.
   const availableSequences = (() => {
-    if (allTypeSequences.length <= 1) return allTypeSequences;
     if (!machines) return allTypeSequences;
+    const ownSeqs = new Set<string>(editingMachine?.sequences || []);
     const usedSeqs = new Set(
       machines
         .filter(m => editingMachine ? m.id !== editingMachine.id : true)
         .flatMap(m => m.sequences || [])
     );
-    return allTypeSequences.filter(s => !usedSeqs.has(s));
+    return allTypeSequences.filter(s => ownSeqs.has(s) || !usedSeqs.has(s));
   })();
 
   // Get the selected line's category to filter machine types
@@ -716,7 +718,7 @@ export default function LinesPage() {
         image_url,
         serial_number,
         nameplate_image_url,
-        sequences: machineSequences,
+        sequences,
         production_line_id: selectedLineId,
       }).select().single();
       if (error) throw error;
@@ -740,7 +742,7 @@ export default function LinesPage() {
   });
 
   const updateMachineMutation = useMutation({
-    mutationFn: async ({ id, sequences, ...values }: MachineForm & { id: string }) => {
+    mutationFn: async ({ id, sequences, previousMachineType, ...values }: MachineForm & { id: string; previousMachineType?: string | null }) => {
       const { name, machine_type, sequence_order, image_url, serial_number, nameplate_image_url } = values;
       const { error } = await supabase.from('machines').update({
         name,
@@ -749,9 +751,14 @@ export default function LinesPage() {
         image_url,
         serial_number,
         nameplate_image_url,
-        sequences: machineSequences,
+        sequences,
       }).eq('id', id);
       if (error) throw error;
+
+      // Type changed → its default position in the line changed too
+      if ((previousMachineType || '') !== (machine_type || '') && selectedLineId) {
+        await reorderByDefaultLineOrder(selectedLineId);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-machines', selectedLineId] });
@@ -840,14 +847,29 @@ export default function LinesPage() {
   };
 
   const onMachineSubmit = (values: MachineForm) => {
-    // Validate sequence selection for multi-sequence types
-    if (availableSequences.length > 1 && !selectedSequence) {
-      toast({
-        title: 'Secuencia requerida',
-        description: 'Selecciona una secuencia para este equipo',
-        variant: 'destructive',
-      });
-      return;
+    // Resolve the sequence actually saved, based on what is still free in the line
+    let finalSequences: string[] = [];
+    if (allTypeSequences.length > 0) {
+      if (availableSequences.length === 0) {
+        toast({
+          title: 'Sin secuencias disponibles',
+          description: `Todas las secuencias de ${values.machine_type} ya están asignadas en esta línea`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (availableSequences.length === 1) {
+        finalSequences = [availableSequences[0]];
+      } else if (selectedSequence && availableSequences.includes(selectedSequence)) {
+        finalSequences = [selectedSequence];
+      } else {
+        toast({
+          title: 'Secuencia requerida',
+          description: 'Selecciona una secuencia para este equipo',
+          variant: 'destructive',
+        });
+        return;
+      }
     }
 
     const missingRequired: string[] = [];
@@ -869,10 +891,15 @@ export default function LinesPage() {
     }
 
     if (editingMachine) {
-      updateMachineMutation.mutate({ id: editingMachine.id, ...values });
+      updateMachineMutation.mutate({
+        id: editingMachine.id,
+        ...values,
+        sequences: finalSequences,
+        previousMachineType: editingMachine.machine_type,
+      });
     } else {
       // Auto-set name from machine type when creating
-      createMachineMutation.mutate({ ...values, name: values.machine_type || values.name });
+      createMachineMutation.mutate({ ...values, name: values.machine_type || values.name, sequences: finalSequences });
     }
   };
 
@@ -1470,9 +1497,16 @@ export default function LinesPage() {
                       <Badge variant="secondary">{availableSequences[0]}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Secuencia única, asignada automáticamente
+                      {allTypeSequences.length > 1
+                        ? 'Única secuencia libre en esta línea, asignada automáticamente'
+                        : 'Secuencia única, asignada automáticamente'}
                     </p>
                   </div>
+                )}
+                {allTypeSequences.length > 0 && availableSequences.length === 0 && (
+                  <p className="text-sm text-destructive">
+                    Todas las secuencias de este tipo ya están asignadas en esta línea.
+                  </p>
                 )}
                 {availableSequences.length > 1 && (
                   <div className="space-y-2">

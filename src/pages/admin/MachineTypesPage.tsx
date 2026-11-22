@@ -369,6 +369,19 @@ export default function MachineTypesPage() {
     onError: (error) => toast({ title: 'Error', description: error.message, variant: 'destructive' }),
   });
 
+  // Next position at the end of the template order (for new / duplicated types)
+  const getNextMachineTypeOrder = async (): Promise<number> => {
+    const { data, error } = await supabase
+      .from('machine_types')
+      .select('sequence_order, default_line_order');
+    if (error) throw error;
+    const max = (data || []).reduce(
+      (acc, t) => Math.max(acc, t.sequence_order ?? -1, t.default_line_order ?? -1),
+      -1
+    );
+    return max + 1;
+  };
+
   // Create new machine type
   const createMachineTypeMutation = useMutation({
     mutationFn: async ({ name, sequences }: { name: string; sequences: string[] }) => {
@@ -381,9 +394,10 @@ export default function MachineTypesPage() {
         throw new Error(`Ya existe un tipo de equipo con el nombre "${name}"`);
       }
       
+      const nextOrder = await getNextMachineTypeOrder();
       const { data, error } = await supabase
         .from('machine_types')
-        .insert({ name, sequences })
+        .insert({ name, sequences, sequence_order: nextOrder, default_line_order: nextOrder })
         .select()
         .single();
       if (error) throw error;
@@ -471,9 +485,10 @@ export default function MachineTypesPage() {
       }
       
       // Create the new machine type first
+      const nextOrder = await getNextMachineTypeOrder();
       const { error: typeError } = await supabase
         .from('machine_types')
-        .insert({ name: newTypeName });
+        .insert({ name: newTypeName, sequence_order: nextOrder, default_line_order: nextOrder });
       if (typeError) throw typeError;
       
       // Get all templates for this type
