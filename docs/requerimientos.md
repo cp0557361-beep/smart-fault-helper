@@ -120,6 +120,26 @@ Al crear una línea con categoría, se ofrece crear de una vez los equipos de es
 
 ---
 
+## 7-bis. Copia selectiva con renombrado y herencia (solicitado, sin diseñar)
+
+Pedido del dueño del producto (22 nov 2026). **Pendiente de definir**: no implementar hasta tener
+el contexto general.
+
+- **R-7b.1** ❓ Toda acción de copiar/duplicar (lo más amplio posible) debe mostrar un diálogo para
+  **elegir qué conservar** en la copia.
+- **R-7b.2** ❓ La copia debe **conservar los atributos** (valores incluidos).
+  > Hoy, al duplicar una línea, los equipos copiados reciben la plantilla con valores vacíos
+  > (`applyTemplateToMachine(..., {})`): los valores de atributos se pierden.
+- **R-7b.3** ❓ **Renombrado en cascada**: al nombrar la copia, el nombre sigue una estructura y los
+  nombres de los elementos debajo en la jerarquía se ajustan en consecuencia. Estructura: por definir.
+- **R-7b.4** ❓ **Herencia del destino**: al copiar a otra ubicación (ej. una secuencia de *Línea 2*
+  a una secuencia de *Underfill* en el área *Backend*), se sugiere agregar a la copia las propiedades
+  de la jerarquía superior del destino. Qué propiedades: por definir.
+- **R-7b.5** ❓ Requiere una función nueva: copiar un equipo/secuencia suelto a otra línea o área
+  (hoy no existe).
+
+---
+
 ## 8. Captura y clasificación de fallas
 
 - **R-8.1** ✅ El operador captura fallas en texto o por voz.
